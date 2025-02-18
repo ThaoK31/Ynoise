@@ -65,3 +65,10 @@ DartConfiguration.tcl
 # 🔹 Fichiers spécifiques à Linux/Mac
 *.out
 *.dSYM/
+
+# 🔹 Fichiers spécifique au dev
+dev/
+
+# Qt Creator user-specific files
+.qtcreator/project.json.user
+CMakeLists.txt.user
