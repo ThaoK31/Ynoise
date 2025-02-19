@@ -27,7 +27,7 @@ public:
 
 signals:
     void titleUpdated();
-    void soundpadUpdated();
+    void soundpadsUpdated();
 };
 
 #endif // BOARD_H

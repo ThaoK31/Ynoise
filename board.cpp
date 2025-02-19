@@ -23,7 +23,7 @@ void Board::addSoundpad(Soundpad* soundpad)
     if (soundpad != nullptr)
     {
         _soundpads.append(soundpad);
-        emit soundpadUpdated();
+        emit soundpadsUpdated();
     }
 }
 
