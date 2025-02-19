@@ -36,7 +36,7 @@ void Board::removeSoundpad(Soundpad* soundpad)
         if (index != -1)
         {
             _soundpads.removeAt(index);
-            emit soundpadUpdated();
+            emit soundpadsUpdated();
         }
     }
 }
