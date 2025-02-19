@@ -9,6 +9,6 @@ int main(int argc, char *argv[])
     Board board;
 
     QObject::connect(&soundpad, &Soundpad::play, &board, &Board:isPressed);
-    s
+    
     return a.exec();
 }
