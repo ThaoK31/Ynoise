@@ -1,11 +1,14 @@
-#include "mainwindow.h"
-
+#include "soundpad.h"
+#include "board.h"
 #include <QApplication>
 
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
-    MainWindow w;
-    w.show();
+    Soundpad soundpad;
+    Board board;
+
+    QObject::connect(&soundpad, &Soundpad::play, &board, &Board:isPressed);
+    s
     return a.exec();
 }
