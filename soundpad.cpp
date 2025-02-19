@@ -21,6 +21,8 @@ Soundpad::Soundpad(const QString &title, const QString &soundFilePath,
 imageFilePath(imageFilePath), canDuplicatePlay(canDuplicatePlay), 
 isPlaying(false), isPressed(false), shortcut(shortcut) {}
 
+Soundpad::~Soundpad() {
+}
 
 // Getters
 QString Soundpad::getTitle() const { return title; }

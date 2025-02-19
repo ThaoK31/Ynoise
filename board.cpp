@@ -4,6 +4,8 @@
 Board::Board(QObject *parent)
     : QObject{parent}
 {}
+Board::~Board() {
+}
 
 void Board::isPressed()
 {

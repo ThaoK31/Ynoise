@@ -15,11 +15,13 @@ public:
     Soundpad(const QString &title, const QString &soundFilePath,
              const QString &imageFilePath, bool canDuplicatePlay,
              const QString &shortcut, QObject *parent = nullptr);
+    ~Soundpad();
 
 
-    void dragAndDrop();
-    void importSound();
-    void stop();
+
+    // void dragAndDrop();
+    // void importSound();
+    // void stop();
     
     // Getters
     QString getTitle() const;
