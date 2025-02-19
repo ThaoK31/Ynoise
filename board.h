@@ -12,7 +12,7 @@ private:
     QString _title;
 public:
     explicit Board(QObject *parent = nullptr);
-slots:
+public slots:
     void isPressed();
 };
 

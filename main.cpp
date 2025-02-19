@@ -8,7 +8,9 @@ int main(int argc, char *argv[])
     Soundpad soundpad;
     Board board;
 
-    QObject::connect(&soundpad, &Soundpad::play, &board, &Board:isPressed);
-    
+    QObject::connect(&soundpad, &Soundpad::play, &board, &Board::isPressed);
+
+    soundpad.setIsPlaying(true);
+
     return a.exec();
 }
