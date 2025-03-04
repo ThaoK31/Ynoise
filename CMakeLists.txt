@@ -17,6 +17,8 @@ set(PROJECT_SOURCES
         mainwindow.cpp
         mainwindow.h
         mainwindow.ui
+        server.h
+        server.cpp
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
@@ -25,6 +27,8 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         ${PROJECT_SOURCES}
         soundpad.h soundpad.cpp
         board.h board.cpp
+        server.h server.cpp
+
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET Ynoise APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
