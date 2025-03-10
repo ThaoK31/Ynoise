@@ -150,6 +150,18 @@ public:
      */
     QString getLocalIpAddress() const;
 
+    /**
+     * @brief Installe un fichier localement
+     * @param filePath Chemin du fichier
+     */
+    void installFileLocally(const QString &filePath);
+
+    /**
+     * @brief Sauvegarde un média dans un SoundPad
+     * @param mediaPath Chemin du média
+     */
+    void saveMediaToPad(const QString &mediaPath);
+
 public slots:
     /**
      * @brief Notifie les autres utilisateurs de l'ajout d'un SoundPad
@@ -209,6 +221,12 @@ signals:
      * @param name Nouveau nom
      */
     void nameChanged(const QString &name);
+    
+    /**
+     * @brief Signal émis lorsque le fichier est installé
+     * @param path Chemin du fichier installé
+     */
+    void fileInstalled(const QString &path);
 
 private slots:
     /**
@@ -251,7 +269,12 @@ private:
      * @param data Données à envoyer
      */
     void sendMessage(QTcpSocket *socket, const QString &type, const QJsonObject &data);
+
+    QList<QByteArray> splitDataIntoChunks(const QByteArray &data, int chunkSize);
     
+    QByteArray reassembleData(const QJsonArray &chunks);
+
+
     /**
      * @brief Traite un message reçu
      * @param socket Socket qui a envoyé le message

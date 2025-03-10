@@ -284,6 +284,26 @@ void Room::handleDataReceived()
     processMessage(socket, messageType, messageData);
 }
 
+
+QList<QByteArray> Room::splitDataIntoChunks(const QByteArray &data, int chunkSize) {
+    QList<QByteArray> chunks;
+    for (int i = 0; i < data.size(); i += chunkSize) {
+        chunks.append(data.mid(i, chunkSize));
+    }
+    return chunks;
+}
+
+// Reconstitue les données originales à partir d'un QJsonArray de chunks (utile côté réception)
+QByteArray reassembleData(const QJsonArray &chunks) {
+    QByteArray fullData;
+    for (int i = 0; i < chunks.size(); ++i) {
+        QString chunkStr = chunks.at(i).toString();
+        fullData.append(QByteArray::fromBase64(chunkStr.toUtf8()));
+    }
+    return fullData;
+}
+
+
 void Room::handleClientDisconnected()
 {
     QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
@@ -341,6 +361,8 @@ void Room::sendMessage(QTcpSocket *socket, const QString &type, const QJsonObjec
     QJsonDocument doc(message);
     QByteArray byteArray = doc.toJson(QJsonDocument::Compact);
     
+    qDebug() << "Envoi du message" << type << "au client" << socket->peerAddress().toString() << "et comme message" << QJsonDocument(data).toJson();
+
     socket->write(byteArray);
 }
 
@@ -552,130 +574,151 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
         Board *targetBoard = nullptr;
         if (m_board && m_board->objectName() == boardId) {
             targetBoard = m_board;
-            qDebug() << "Board cible trouvé:" << boardId;
         } else {
-            qDebug() << "ERREUR: Board cible non trouvé:" << boardId;
+            qDebug() << "[ERREUR] Board cible non trouvé:" << boardId;
         }
         
         if (targetBoard) {
-            qDebug() << "Création d'un nouveau SoundPad avec ID:" << padId;
+            qDebug() << "[INFO] Création d'un nouveau SoundPad avec ID:" << padId;
             
-            // Créer un nouveau SoundPad avec les données minimales
-            SoundPad *newPad = new SoundPad("", "", "", canDuplicatePlay, shortcut, targetBoard);
+            // Créer le SoundPad sans charger immédiatement les médias
+            SoundPad *newPad = new SoundPad(title, "", "", canDuplicatePlay, shortcut, targetBoard);
             newPad->setObjectName(padId);
             
-            // Définir les propriétés du SoundPad
-            newPad->setTitle(title);
-            qDebug() << "Titre défini:" << title;
-            
-            // Conserver les chemins de fichiers pour référence, même si nous avons les données binaires
-            if (!filePath.isEmpty()) {
-                newPad->setFilePath(filePath);
-                qDebug() << "Chemin audio défini:" << filePath;
-                
-                // Vérifier si le fichier existe localement
-                if (QFile::exists(filePath)) {
-                    qDebug() << "  - Le fichier audio existe localement";
-                } else {
-                    qDebug() << "  - Le fichier audio n'existe pas localement";
-                }
+            // Définir explicitement le titre
+            if (!title.isEmpty()) {
+                newPad->blockSignals(true);
+                newPad->setTitle(title);
+                newPad->blockSignals(false);
+                qDebug() << "[INFO] Titre défini:" << title;
             }
             
-            if (!imagePath.isEmpty()) {
-                newPad->setImagePath(imagePath);
-                qDebug() << "Chemin image défini:" << imagePath;
-                
-                // Vérifier si le fichier existe localement
-                if (QFile::exists(imagePath)) {
-                    qDebug() << "  - Le fichier image existe localement";
-                } else {
-                    qDebug() << "  - Le fichier image n'existe pas localement";
-                }
-            }
-            
-            // Définir les données binaires si disponibles
-            bool audioLoaded = false;
-            bool imageLoaded = false;
-            
-            qDebug() << "Chargement des données audio et image:";
+            // Flag pour suivre si les médias ont été traités
+            bool audioProcessed = false;
+            bool imageProcessed = false;
             
             // Priorité aux données reçues en base64
             if (audioDataReceived) {
-                qDebug() << "  - Définition des données audio depuis les données reçues";
+                qDebug() << "[INFO] Définition des données audio depuis les données reçues";
                 newPad->setAudioData(audioData);
                 
                 // Vérifier si les données ont été correctement définies
                 if (!newPad->getAudioData().isEmpty()) {
-                    audioLoaded = true;
-                    qDebug() << "  - Données audio définies sur le nouveau SoundPad:" << audioData.size() << "octets";
+                    audioProcessed = true;
+                    qDebug() << "[INFO] Données audio définies sur le nouveau SoundPad:" << audioData.size() << "octets";
                     
                     // Si le fichier n'existe pas localement, le sauvegarder
                     if (!filePath.isEmpty() && !QFile::exists(filePath)) {
-                        QString localFilePath = filePath;
-                        QFileInfo fileInfo(localFilePath);
-                        if (!fileInfo.dir().exists()) {
-                            fileInfo.dir().mkpath(".");
-                        }
+                        // Créer un chemin temporaire pour sauvegarder le fichier audio
+                        QFileInfo fileInfo(filePath);
+                        QString tempDir = QDir::tempPath() + "/Ynoise/";
+                        QDir().mkpath(tempDir);
+                        QString tempFilePath = tempDir + fileInfo.fileName();
                         
-                        qDebug() << "  - Sauvegarde du fichier audio reçu vers:" << localFilePath;
-                        if (newPad->saveAudioToFile(localFilePath)) {
-                            qDebug() << "  - Fichier audio sauvegardé avec succès";
+                        qDebug() << "[INFO] Sauvegarde temporaire du fichier audio reçu vers:" << tempFilePath;
+                        
+                        if (newPad->saveAudioToFile(tempFilePath)) {
+                            qDebug() << "[INFO] Fichier audio temporaire sauvegardé avec succès";
+                            
+                            // Installer le fichier en conservant la structure de répertoire
+                            installFileLocally(tempFilePath);
+                            
+                            // Utiliser le nouveau chemin installé
+                            QString basePath = QDir::homePath() + "/Documents/";
+                            QString relativePath = fileInfo.absoluteFilePath().remove(basePath);
+                            QString installedPath = QDir::homePath() + "/InstalledFiles/" + relativePath;
+                            
+                            // Mettre à jour le chemin du fichier dans le pad SANS recharger le fichier
+                            newPad->blockSignals(true);
+                            newPad->setFilePath(installedPath);
+                            newPad->blockSignals(false);
+                            qDebug() << "[INFO] Chemin audio mis à jour vers:" << installedPath;
                         } else {
-                            qDebug() << "  - ERREUR: Échec de la sauvegarde du fichier audio";
+                            qDebug() << "[ERREUR] Échec de la sauvegarde du fichier audio temporaire";
                         }
+                    } else if (QFile::exists(filePath)) {
+                        // Si le fichier existe, on met simplement à jour le chemin sans recharger
+                        newPad->blockSignals(true);
+                        newPad->setFilePath(filePath);
+                        newPad->blockSignals(false);
+                        qDebug() << "[INFO] Chemin audio défini (sans chargement) vers le fichier existant:" << filePath;
                     }
                 } else {
-                    qDebug() << "  - ERREUR: Les données audio n'ont pas été définies correctement";
+                    qDebug() << "[ERREUR] Les données audio n'ont pas été définies correctement";
                 }
             } else if (!filePath.isEmpty() && QFile::exists(filePath)) {
-                // Essayer de charger depuis le fichier local si disponible
-                qDebug() << "  - Tentative de chargement audio depuis le fichier local:" << filePath;
-                audioLoaded = newPad->loadAudioFromFile(filePath);
-                qDebug() << "  - Chargement audio depuis le fichier local:" << (audioLoaded ? "réussi" : "échoué");
+                // Essayer de charger depuis le fichier local si disponible ET si pas déjà traité
+                if (!audioProcessed) {
+                    qDebug() << "[INFO] Définition du chemin audio avec fichier local:" << filePath;
+                    newPad->setFilePath(filePath);
+                    audioProcessed = true;
+                }
             }
             
-            // Priorité aux données reçues en base64
+            // Traitement similaire pour l'image
             if (imageDataReceived) {
-                qDebug() << "  - Définition des données image depuis les données reçues";
+                qDebug() << "[INFO] Définition des données image depuis les données reçues";
                 newPad->setImageData(imageData);
                 
-                // Vérifier si les données ont été correctement définies
                 if (!newPad->getImageData().isEmpty()) {
-                    imageLoaded = true;
-                    qDebug() << "  - Données image définies sur le nouveau SoundPad:" << imageData.size() << "octets";
+                    imageProcessed = true;
+                    qDebug() << "[INFO] Données image définies sur le nouveau SoundPad:" << imageData.size() << "octets";
                     
                     // Si le fichier n'existe pas localement, le sauvegarder
                     if (!imagePath.isEmpty() && !QFile::exists(imagePath)) {
-                        QString localImagePath = imagePath;
-                        QFileInfo fileInfo(localImagePath);
-                        if (!fileInfo.dir().exists()) {
-                            fileInfo.dir().mkpath(".");
-                        }
+                        // Créer un chemin temporaire pour sauvegarder le fichier image
+                        QFileInfo fileInfo(imagePath);
+                        QString tempDir = QDir::tempPath() + "/Ynoise/";
+                        QDir().mkpath(tempDir);
+                        QString tempFilePath = tempDir + fileInfo.fileName();
                         
-                        qDebug() << "  - Sauvegarde du fichier image reçu vers:" << localImagePath;
-                        if (newPad->saveImageToFile(localImagePath)) {
-                            qDebug() << "  - Fichier image sauvegardé avec succès";
+                        qDebug() << "[INFO] Sauvegarde temporaire du fichier image reçu vers:" << tempFilePath;
+                        
+                        if (newPad->saveImageToFile(tempFilePath)) {
+                            qDebug() << "[INFO] Fichier image temporaire sauvegardé avec succès";
+                            
+                            // Installer le fichier en conservant la structure de répertoire
+                            installFileLocally(tempFilePath);
+                            
+                            // Utiliser le nouveau chemin installé
+                            QString basePath = QDir::homePath() + "/Documents/";
+                            QString relativePath = fileInfo.absoluteFilePath().remove(basePath);
+                            QString installedPath = QDir::homePath() + "/InstalledFiles/" + relativePath;
+                            
+                            // Mettre à jour le chemin du fichier dans le pad SANS recharger le fichier
+                            newPad->blockSignals(true);
+                            newPad->setImagePath(installedPath);
+                            newPad->blockSignals(false);
+                            qDebug() << "[INFO] Chemin image mis à jour vers:" << installedPath;
                         } else {
-                            qDebug() << "  - ERREUR: Échec de la sauvegarde du fichier image";
+                            qDebug() << "[ERREUR] Échec de la sauvegarde du fichier image temporaire";
                         }
+                    } else if (QFile::exists(imagePath)) {
+                        // Si le fichier existe, on met simplement à jour le chemin sans recharger
+                        newPad->blockSignals(true);
+                        newPad->setImagePath(imagePath);
+                        newPad->blockSignals(false);
+                        qDebug() << "[INFO] Chemin image défini (sans chargement) vers le fichier existant:" << imagePath;
                     }
                 } else {
-                    qDebug() << "  - ERREUR: Les données image n'ont pas été définies correctement";
+                    qDebug() << "[ERREUR] Les données image n'ont pas été définies correctement";
                 }
             } else if (!imagePath.isEmpty() && QFile::exists(imagePath)) {
-                // Essayer de charger depuis le fichier local si disponible
-                qDebug() << "  - Tentative de chargement image depuis le fichier local:" << imagePath;
-                imageLoaded = newPad->loadImageFromFile(imagePath);
-                qDebug() << "  - Chargement image depuis le fichier local:" << (imageLoaded ? "réussi" : "échoué");
+                // Essayer de charger depuis le fichier local si disponible ET si pas déjà traité
+                if (!imageProcessed) {
+                    qDebug() << "[INFO] Définition du chemin image avec fichier local:" << imagePath;
+                    newPad->setImagePath(imagePath);
+                    imageProcessed = true;
+                }
             }
             
             // Vérifier si les données ont été chargées correctement
-            if (!audioLoaded && !filePath.isEmpty()) {
-                qDebug() << "AVERTISSEMENT: Impossible de charger les données audio pour le pad" << padId;
+            if (!audioProcessed && !filePath.isEmpty()) {
+                qDebug() << "[AVERTISSEMENT] Impossible de charger les données audio pour le pad" << padId;
             }
             
-            if (!imageLoaded && !imagePath.isEmpty()) {
-                qDebug() << "AVERTISSEMENT: Impossible de charger les données image pour le pad" << padId;
+            if (!imageProcessed && !imagePath.isEmpty()) {
+                qDebug() << "[AVERTISSEMENT] Impossible de charger les données image pour le pad" << padId;
             }
             
             qDebug() << "Tentative d'ajout d'un nouveau SoundPad:" << padId;
@@ -721,31 +764,56 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
             qDebug() << "Board principal défini avec l'ID fixe: 1";
         }
     }
-    
-    // Autres messages...
 }
 
 void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
 {
-    qDebug() << "Entrée dans notifySoundPadAdded pour board:" << (board ? board->objectName() : "null") 
+    qDebug() << "-------------------------------------------------------------";
+    qDebug() << "[DEBUG] Entrée dans notifySoundPadAdded pour board:" << (board ? board->objectName() : "null") 
              << "pad:" << (pad ? pad->objectName() : "null");
     
     if (!board || !pad) {
-        qDebug() << "ERREUR: notifySoundPadAdded appelé avec des pointeurs invalides";
+        qDebug() << "[ERREUR] notifySoundPadAdded appelé avec des pointeurs invalides";
         return;
     }
     
-    // Utiliser l'ID fixe "1" pour tous les boards
-    if (board->objectName().isEmpty()) {
-        board->setObjectName("1");
-        qDebug() << "ID fixe attribué au board dans notifySoundPadAdded: 1";
+    // Vérification des chemins des médias
+    QString soundPath = pad->getFilePath();  // Utiliser getFilePath pour le son
+    QString imagePath = pad->getImagePath(); // Utiliser getImagePath pour l'image
+    
+    qDebug() << "[INFO] Chemin audio :" << (soundPath.isEmpty() ? "VIDE" : soundPath);
+    qDebug() << "[INFO] Chemin image :" << (imagePath.isEmpty() ? "VIDE" : imagePath);
+    
+    if (!soundPath.isEmpty()) {
+        QFileInfo soundInfo(soundPath);
+        if (soundInfo.exists() && soundInfo.isFile()) {
+            qDebug() << "[INFO] Sauvegarde du fichier audio :" << soundPath;
+            saveMediaToPad(soundPath);
+        } else {
+            qDebug() << "[ERREUR] Fichier audio introuvable :" << soundPath;
+        }
     }
     
-    // Générer un identifiant unique si nécessaire
+    if (!imagePath.isEmpty()) {
+        QFileInfo imageInfo(imagePath);
+        if (imageInfo.exists() && imageInfo.isFile()) {
+            qDebug() << "[INFO] Sauvegarde du fichier image :" << imagePath;
+            saveMediaToPad(imagePath);
+        } else {
+            qDebug() << "[ERREUR] Fichier image introuvable :" << imagePath;
+        }
+    }
+    
+    // Préparation pour l'envoi au réseau
+    if (board->objectName().isEmpty()) {
+        board->setObjectName("1");
+        qDebug() << "ID fixe attribué au board: 1";
+    }
+    
     if (pad->objectName().isEmpty()) {
         QString padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
         pad->setObjectName(padId);
-        qDebug() << "ID généré pour un pad sans identifiant dans notifySoundPadAdded:" << padId;
+        qDebug() << "ID généré pour un pad sans identifiant:" << padId;
     }
     
     qDebug() << "Notification d'ajout du SoundPad:" << pad->objectName() << "au Board:" << board->objectName();
@@ -756,7 +824,6 @@ void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
     qDebug() << "  - Lecture multiple:" << (pad->getCanDuplicatePlay() ? "Oui" : "Non");
     qDebug() << "  - Raccourci:" << pad->getShortcut().toString();
     
-    // Créer les données à envoyer
     QJsonObject padData;
     padData["board_id"] = board->objectName();
     padData["pad_id"] = pad->objectName();
@@ -766,121 +833,151 @@ void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
     padData["can_duplicate_play"] = pad->getCanDuplicatePlay();
     padData["shortcut"] = pad->getShortcut().toString();
     
-    // Ajouter les données binaires encodées en base64
     QByteArray audioData = pad->getAudioData();
     QByteArray imageData = pad->getImageData();
     
     qDebug() << "Préparation des données binaires pour l'envoi:";
     
+    // Taille du chunk à utiliser (par exemple 10000 octets, à ajuster selon vos besoins)
+    const int chunkSize = 10000;
+
     if (!audioData.isEmpty()) {
-        QByteArray encodedAudio = audioData.toBase64();
-        padData["audio_data"] = QString(encodedAudio);
-        qDebug() << "  - Données audio ajoutées:" << audioData.size() << "octets (taille encodée:" << encodedAudio.size() << "octets)";
-        
-        // Récupérer la valeur en tant que QString pour pouvoir utiliser size() et left()
-        QString audioDataStr = padData["audio_data"].toString();
-        qDebug() << "  - Vérification encodage audio: " << (audioDataStr.isEmpty() ? "VIDE!" : "OK") 
-                 << " (premiers 20 caractères: " << (audioDataStr.length() > 20 ? audioDataStr.left(20) + "..." : audioDataStr) << ")";
-    } else {
-        qDebug() << "  - Pas de données audio à envoyer";
+        QList<QByteArray> audioChunks = splitDataIntoChunks(audioData, chunkSize);
+        QJsonArray audioJsonChunks;
+        for (const QByteArray &chunk : audioChunks) {
+            audioJsonChunks.append(QString(chunk.toBase64()));
+        }
+        padData["audio_data_chunks"] = audioJsonChunks;
     }
-    
+
     if (!imageData.isEmpty()) {
-        QByteArray encodedImage = imageData.toBase64();
-        padData["image_data"] = QString(encodedImage);
-        qDebug() << "  - Données image ajoutées:" << imageData.size() << "octets (taille encodée:" << encodedImage.size() << "octets)";
-        
-        // Récupérer la valeur en tant que QString pour pouvoir utiliser size() et left()
-        QString imageDataStr = padData["image_data"].toString();
-        qDebug() << "  - Vérification encodage image: " << (imageDataStr.isEmpty() ? "VIDE!" : "OK") 
-                 << " (premiers 20 caractères: " << (imageDataStr.length() > 20 ? imageDataStr.left(20) + "..." : imageDataStr) << ")";
-    } else {
-        qDebug() << "  - Pas de données image à envoyer";
+        QList<QByteArray> imageChunks = splitDataIntoChunks(imageData, chunkSize);
+        QJsonArray imageJsonChunks;
+        for (const QByteArray &chunk : imageChunks) {
+            imageJsonChunks.append(QString(chunk.toBase64()));
+        }
+        padData["image_data_chunks"] = imageJsonChunks;
     }
     
     qDebug() << "Vérification finale des données avant envoi:";
-    if (padData.contains("audio_data")) {
-        QString audioDataStr = padData["audio_data"].toString();
-        qDebug() << "  - Données audio dans JSON: " << (audioDataStr.isEmpty() ? "VIDE!" : QString("%1 caractères").arg(audioDataStr.length()));
+    if (padData.contains("audio_data_chunks")) {
+        QJsonArray audioChunks = padData["audio_data_chunks"].toArray();
+        qDebug() << "  - Nombre de chunks audio dans JSON:" << audioChunks.size();
     } else {
         qDebug() << "  - Données audio dans JSON: ABSENTES!";
     }
-    
-    if (padData.contains("image_data")) {
-        QString imageDataStr = padData["image_data"].toString();
-        qDebug() << "  - Données image dans JSON: " << (imageDataStr.isEmpty() ? "VIDE!" : QString("%1 caractères").arg(imageDataStr.length()));
+
+    if (padData.contains("image_data_chunks")) {
+        QJsonArray imageChunks = padData["image_data_chunks"].toArray();
+        qDebug() << "  - Nombre de chunks image dans JSON:" << imageChunks.size();
     } else {
         qDebug() << "  - Données image dans JSON: ABSENTES!";
     }
-    
-    // Diffuser à tous les clients si nous sommes l'hôte
+
+    // Envoi des données : diffusion ou envoi direct selon le mode (hôte ou client)
     if (m_isHost) {
         qDebug() << "Diffusion du message 'soundpad_added' à tous les clients";
-        
-        // Afficher un aperçu des données qui seront envoyées
-        QString audioDataStr = padData["audio_data"].toString();
-        QString imageDataStr = padData["image_data"].toString();
-        qDebug() << "Données audio à envoyer: " << (audioDataStr.isEmpty() ? "VIDE" : QString("%1 caractères").arg(audioDataStr.length()));
-        qDebug() << "Données image à envoyer: " << (imageDataStr.isEmpty() ? "VIDE" : QString("%1 caractères").arg(imageDataStr.length()));
-        
         broadcastMessage("soundpad_added", padData);
     } else if (m_clientSocket && m_clientSocket->state() == QAbstractSocket::ConnectedState) {
-        qDebug() << "Envoi du message 'soundpad_added' à l'hôte : ", padData, " l'hote : ", m_clientSocket;
+        qDebug() << "Envoi du message 'soundpad_added' à l'hôte : "
+                 << padData << " l'hôte : " << m_clientSocket;
         sendMessage(m_clientSocket, "soundpad_added", padData);
     }
-    
-    // Émettre le signal local
+
     emit soundpadAdded(board, pad);
 }
 
 void Room::notifySoundPadRemoved(Board *board, SoundPad *pad)
 {
-    qDebug() << "Entrée dans notifySoundPadRemoved pour board:" << (board ? board->objectName() : "null") 
+    qDebug() << "-------------------------------------------------------------";
+    qDebug() << "[DEBUG] Entrée dans notifySoundPadRemoved pour board:"
+             << (board ? board->objectName() : "null")
              << "pad:" << (pad ? pad->objectName() : "null");
-    
+
     if (!board || !pad) {
-        qDebug() << "ERREUR: notifySoundPadRemoved appelé avec des pointeurs invalides";
+        qDebug() << "[ERREUR] notifySoundPadRemoved appelé avec des pointeurs invalides";
         return;
     }
-    
-    // Vérifier que le board a un identifiant valide
+
     if (board->objectName().isEmpty()) {
-        QString boardId = QString("board_%1").arg(QDateTime::currentMSecsSinceEpoch());
-        board->setObjectName(boardId);
-        qDebug() << "ID généré pour un board sans identifiant dans notifySoundPadRemoved:" << boardId;
+        board->setObjectName("1");
+        qDebug() << "ID fixe attribué au board dans notifySoundPadRemoved: 1";
     }
-    
-    // Stocker toutes les informations nécessaires avant toute opération qui pourrait modifier le pad
-    QString boardId = board->objectName();
-    QString padId;
-    
-    // Vérifier que le pad a un identifiant valide
+
     if (pad->objectName().isEmpty()) {
-        padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
+        QString padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
         pad->setObjectName(padId);
         qDebug() << "ID généré pour un pad sans identifiant dans notifySoundPadRemoved:" << padId;
-    } else {
-        padId = pad->objectName();
     }
-    
-    qDebug() << "Notification de suppression du SoundPad:" << padId << "du Board:" << boardId;
-    
-    // Créer les données à envoyer avec les informations stockées
+
+    qDebug() << "Notification de suppression du SoundPad:" << pad->objectName() << "du Board:" << board->objectName();
+    qDebug() << "Détails du SoundPad à envoyer:";
+    qDebug() << "  - Titre:" << pad->getTitle();
+    qDebug() << "  - Chemin audio:" << pad->getFilePath();
+    qDebug() << "  - Chemin image:" << pad->getImagePath();
+    qDebug() << "  - Lecture multiple:" << (pad->getCanDuplicatePlay() ? "Oui" : "Non");
+    qDebug() << "  - Raccourci:" << pad->getShortcut().toString();
+
     QJsonObject padData;
-    padData["board_id"] = boardId;
-    padData["pad_id"] = padId;
-    
-    // Diffuser à tous les clients si nous sommes l'hôte
+    padData["board_id"] = board->objectName();
+    padData["pad_id"] = pad->objectName();
+    padData["title"] = pad->getTitle();
+    padData["file_path"] = pad->getFilePath();
+    padData["image_path"] = pad->getImagePath();
+    padData["can_duplicate_play"] = pad->getCanDuplicatePlay();
+    padData["shortcut"] = pad->getShortcut().toString();
+
+    QByteArray audioData = pad->getAudioData();
+    QByteArray imageData = pad->getImageData();
+
+    qDebug() << "Préparation des données binaires pour l'envoi:";
+
+    // Taille du chunk à utiliser (par exemple 10000 octets, à ajuster selon vos besoins)
+    const int chunkSize = 10000;
+
+    if (!audioData.isEmpty()) {
+        QList<QByteArray> audioChunks = splitDataIntoChunks(audioData, chunkSize);
+        QJsonArray audioJsonChunks;
+        for (const QByteArray &chunk : audioChunks) {
+            audioJsonChunks.append(QString(chunk.toBase64()));
+        }
+        padData["audio_data_chunks"] = audioJsonChunks;
+    }
+
+    if (!imageData.isEmpty()) {
+        QList<QByteArray> imageChunks = splitDataIntoChunks(imageData, chunkSize);
+        QJsonArray imageJsonChunks;
+        for (const QByteArray &chunk : imageChunks) {
+            imageJsonChunks.append(QString(chunk.toBase64()));
+        }
+        padData["image_data_chunks"] = imageJsonChunks;
+    }
+
+    qDebug() << "Vérification finale des données avant envoi:";
+    if (padData.contains("audio_data_chunks")) {
+        QJsonArray audioChunks = padData["audio_data_chunks"].toArray();
+        qDebug() << "  - Nombre de chunks audio dans JSON:" << audioChunks.size();
+    } else {
+        qDebug() << "  - Données audio dans JSON: ABSENTES!";
+    }
+
+    if (padData.contains("image_data_chunks")) {
+        QJsonArray imageChunks = padData["image_data_chunks"].toArray();
+        qDebug() << "  - Nombre de chunks image dans JSON:" << imageChunks.size();
+    } else {
+        qDebug() << "  - Données image dans JSON: ABSENTES!";
+    }
+
+    // Envoi des données : diffusion ou envoi direct selon le mode (hôte ou client)
     if (m_isHost) {
         qDebug() << "Diffusion du message 'soundpad_removed' à tous les clients";
         broadcastMessage("soundpad_removed", padData);
     } else if (m_clientSocket && m_clientSocket->state() == QAbstractSocket::ConnectedState) {
-        qDebug() << "Envoi du message 'soundpad_removed' à l'hôte";
+        qDebug() << "Envoi du message 'soundpad_removed' à l'hôte : "
+                 << padData << " l'hôte : " << m_clientSocket;
         sendMessage(m_clientSocket, "soundpad_removed", padData);
     }
-    
-    // Émettre le signal local avec le pad et le board
-    // Important : Les objets board et pad doivent toujours être valides à ce stade
+
     emit soundpadRemoved(board, pad);
 }
 
@@ -934,4 +1031,62 @@ QStringList Room::connectedUsers() const
     }
     
     return usernames;
+}
+
+void Room::installFileLocally(const QString &filePath) {
+    QFileInfo fileInfo(filePath);
+    
+    // Conservation de l'arborescence complète depuis le dossier Documents
+    QString basePath = QDir::homePath() + "/Documents/";
+    QString relativePath = fileInfo.absoluteFilePath().remove(basePath);
+    QString destination = QDir::homePath() + "/InstalledFiles/" + relativePath;
+    
+    QDir().mkpath(QFileInfo(destination).absolutePath());
+    
+    if (QFile::copy(filePath, destination)) {
+        qDebug() << "[SUCCÈS] Fichier installé dans :" << QDir::toNativeSeparators(destination);
+        emit fileInstalled(destination); // Émission d'un signal si nécessaire
+    } else {
+        qDebug() << "[ERREUR] Échec de l'installation vers :" << QDir::toNativeSeparators(destination);
+        qDebug() << "         Vérifiez les permissions d'écriture et l'espace disque";
+    }
+}
+
+void Room::saveMediaToPad(const QString &mediaPath) {
+    // Vérification que le chemin source existe
+    QFileInfo fileInfo(mediaPath);
+    
+    if (mediaPath.isEmpty() || !fileInfo.exists() || !fileInfo.isFile()) {
+        qDebug() << "[ERREUR] Chemin du média invalide ou fichier inexistant :" << mediaPath;
+        return;
+    }
+    
+    // Création du répertoire de destination
+    QString mediaDir = QDir::currentPath() + "/media";
+    QDir dir(mediaDir);
+    if (!dir.exists()) {
+        if (!dir.mkpath(".")) {
+            qDebug() << "[ERREUR] Impossible de créer le répertoire :" << mediaDir;
+            return;
+        }
+        qDebug() << "[INFO] Répertoire media créé :" << mediaDir;
+    }
+    
+    // Construction du chemin de destination
+    QString destination = mediaDir + "/" + fileInfo.fileName();
+    
+    // Vérification si le fichier existe déjà
+    if (QFile::exists(destination)) {
+        QFile::remove(destination);
+        qDebug() << "[INFO] Fichier existant supprimé :" << destination;
+    }
+    
+    // Copie du fichier
+    if (QFile::copy(mediaPath, destination)) {
+        qDebug() << "[SUCCÈS] Média sauvegardé dans :" << QDir::toNativeSeparators(destination);
+    } else {
+        qDebug() << "[ERREUR] Échec de la sauvegarde du média :" << QDir::toNativeSeparators(destination);
+        qDebug() << "         Source :" << mediaPath;
+        qDebug() << "         Vérifiez les permissions et l'espace disque";
+    }
 }

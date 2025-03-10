@@ -44,11 +44,13 @@ public:
     QString getTitle() const { return m_title; }
     void setTitle(const QString &title);
     
-    QString getFilePath() const { return m_filePath; }
-    void setFilePath(const QString &filePath);
+    QString getSoundPath() const { return m_filePath; }
     
     QString getImagePath() const { return m_imagePath; }
     void setImagePath(const QString &imagePath);
+    
+    QString getFilePath() const { return m_filePath; }
+    void setFilePath(const QString &filePath);
     
     QPixmap getImage() const { return m_image; }
     void setImage(const QPixmap &image);

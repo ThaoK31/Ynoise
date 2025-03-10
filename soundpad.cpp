@@ -531,10 +531,6 @@ void SoundPad::setImagePath(const QString &imagePath)
 {
     log(tr("Modification du chemin image: %1").arg(imagePath));
     m_imagePath = imagePath;
-    if (!m_imagePath.isEmpty()) {
-        loadImageFromFile(m_imagePath);
-        updateUI();
-    }
 }
 
 void SoundPad::setImage(const QPixmap &image)
