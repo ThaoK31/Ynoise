@@ -105,12 +105,12 @@ void RoomDialog::setupUI()
                 m_inputEdit->setText(m_inviteCode);
             }
             
-            m_primaryButton = new QPushButton(tr("Générer un nouveau code"), this);
+            //m_primaryButton = new QPushButton(tr("Générer un nouveau code"), this);
             m_secondaryButton = new QPushButton(tr("Copier"), this);
             m_closeButton = new QPushButton(tr("Fermer"), this);
             
             // Connexion des signaux
-            connect(m_primaryButton, &QPushButton::clicked, this, &RoomDialog::generateCode);
+            //connect(m_primaryButton, &QPushButton::clicked, this, &RoomDialog::generateCode);
             connect(m_secondaryButton, &QPushButton::clicked, this, &RoomDialog::copyToClipboard);
             connect(m_closeButton, &QPushButton::clicked, this, &QDialog::accept);
             
@@ -119,7 +119,7 @@ void RoomDialog::setupUI()
             mainLayout->addWidget(m_inputEdit);
             
             QHBoxLayout *inviteButtonsLayout = new QHBoxLayout();
-            inviteButtonsLayout->addWidget(m_primaryButton);
+            //inviteButtonsLayout->addWidget(m_primaryButton);
             inviteButtonsLayout->addWidget(m_secondaryButton);
             mainLayout->addLayout(inviteButtonsLayout);
             
