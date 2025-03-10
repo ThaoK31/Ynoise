@@ -80,6 +80,12 @@ signals:
      * @brief Signal émis lorsque les métadonnées sont modifiées
      */
     void metadataChanged();
+    
+    /**
+     * @brief Signal émis lorsque les propriétés du SoundPad sont modifiées
+     * @param pad Le SoundPad modifié
+     */
+    void soundPadModified(SoundPad* pad);
 
 protected:
     /**

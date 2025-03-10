@@ -165,6 +165,13 @@ public slots:
      */
     void notifySoundPadRemoved(Board *board, SoundPad *pad);
 
+    /**
+     * @brief Notifie les autres utilisateurs de la modification d'un SoundPad
+     * @param board Board contenant le SoundPad
+     * @param pad SoundPad modifié
+     */
+    void notifySoundPadModified(Board *board, SoundPad *pad);
+
 signals:
     /**
      * @brief Signal émis lorsqu'un utilisateur se connecte
@@ -191,6 +198,13 @@ signals:
      * @param pad SoundPad supprimé
      */
     void soundpadRemoved(Board *board, SoundPad *pad);
+
+    /**
+     * @brief Signal émis lorsqu'un SoundPad est modifié
+     * @param board Tableau contenant le SoundPad
+     * @param pad SoundPad modifié
+     */
+    void soundpadModified(Board *board, SoundPad *pad);
     
     /**
      * @brief Signal émis lorsque le serveur démarre
@@ -241,8 +255,9 @@ private:
      * @brief Envoie un message à tous les clients
      * @param type Type de message
      * @param data Données à envoyer
+     * @param excludeSocket Socket à exclure de la diffusion (optionnel)
      */
-    void broadcastMessage(const QString &type, const QJsonObject &data);
+    void broadcastMessage(const QString &type, const QJsonObject &data, QTcpSocket *excludeSocket = nullptr);
     
     /**
      * @brief Envoie un message à un client spécifique

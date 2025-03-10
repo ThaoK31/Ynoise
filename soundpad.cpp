@@ -209,12 +209,29 @@ void SoundPad::editMetadata()
     
     // Exécution de la boîte de dialogue
     if (dialog.exec() == QDialog::Accepted) {
+        bool hasChanges = false;
+        
         // Mise à jour des métadonnées
-        m_title = titleEdit.text();
-        m_filePath = filePathEdit.text();
-        m_imagePath = imagePathEdit.text();
-        m_canDuplicatePlay = duplicateCheckBox.isChecked();
-        m_shortcut = shortcutEdit.keySequence();
+        if (m_title != titleEdit.text()) {
+            m_title = titleEdit.text();
+            hasChanges = true;
+        }
+        if (m_filePath != filePathEdit.text()) {
+            m_filePath = filePathEdit.text();
+            hasChanges = true;
+        }
+        if (m_imagePath != imagePathEdit.text()) {
+            m_imagePath = imagePathEdit.text();
+            hasChanges = true;
+        }
+        if (m_canDuplicatePlay != duplicateCheckBox.isChecked()) {
+            m_canDuplicatePlay = duplicateCheckBox.isChecked();
+            hasChanges = true;
+        }
+        if (m_shortcut != shortcutEdit.keySequence()) {
+            m_shortcut = shortcutEdit.keySequence();
+            hasChanges = true;
+        }
         
         // Chargement de l'image et du son
         if (!m_imagePath.isEmpty()) {
@@ -228,8 +245,11 @@ void SoundPad::editMetadata()
         // Mise à jour de l'interface
         updateUI();
         
-        // Émission du signal de modification
-        emit metadataChanged();
+        // Émission des signaux de modification
+        if (hasChanges) {
+            emit metadataChanged();
+            emit soundPadModified(this);
+        }
     }
 }
 

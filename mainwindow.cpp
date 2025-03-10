@@ -440,16 +440,19 @@ void MainWindow::connectBoardSignals(Board *board, Room *room)
     
     qDebug() << "Connexion des signaux du board" << board->objectName() << "à la room";
     
-    // Générer un ID pour ce board s'il n'en a pas déjà un
+    // IMPORTANT: Utiliser toujours l'ID fixe "1" pour le board principal
+    // pour assurer la compatibilité avec les messages réseau
     if (board->objectName().isEmpty()) {
-        QString boardId = QString("board_%1").arg(QDateTime::currentMSecsSinceEpoch());
-        board->setObjectName(boardId);
-        qDebug() << "ID généré pour le board:" << boardId;
+        board->setObjectName("1");
+        qDebug() << "ID fixe attribué au board: 1";
+    } else if (board->objectName() != "1") {
+        qDebug() << "AVERTISSEMENT: Remplacement de l'ID du board" << board->objectName() << "par l'ID fixe '1'";
+        board->setObjectName("1");
     }
     
     // Connecter les signaux du board pour la synchronisation des SoundPads
     connect(board, &Board::soundPadAdded, this, [this, room, board](SoundPad *pad) {
-        qDebug() << "Signal soundPadAdded émis par le board, notification envoyée à la room";
+        qDebug() << "Signal soundPadAdded émis par le board" << board->objectName() << ", notification envoyée à la room";
         
         // Générer un ID pour ce pad s'il n'en a pas déjà un
         if (pad->objectName().isEmpty()) {
@@ -463,7 +466,7 @@ void MainWindow::connectBoardSignals(Board *board, Room *room)
     });
     
     connect(board, &Board::soundPadRemoved, this, [this, room, board](SoundPad *pad) {
-        qDebug() << "Signal soundPadRemoved émis par le board, notification envoyée à la room";
+        qDebug() << "Signal soundPadRemoved émis par le board" << board->objectName() << ", notification envoyée à la room";
         
         if (!pad) {
             qDebug() << "ERREUR: pad invalide dans le signal soundPadRemoved";
@@ -485,6 +488,26 @@ void MainWindow::connectBoardSignals(Board *board, Room *room)
         room->notifySoundPadRemoved(board, pad);
     });
     
+    // Connexion du signal de modification du SoundPad
+    connect(board, &Board::soundPadModified, this, [this, room, board](SoundPad *pad) {
+        qDebug() << "Signal soundPadModified émis par le board" << board->objectName() << ", notification envoyée à la room";
+        
+        if (!pad) {
+            qDebug() << "ERREUR: pad invalide dans le signal soundPadModified";
+            return;
+        }
+        
+        // Vérifier que le pad a un ID avant la notification
+        if (pad->objectName().isEmpty()) {
+            QString padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
+            pad->setObjectName(padId);
+            qDebug() << "ID généré pour le pad avant modification:" << padId;
+        }
+        
+        // Notifier la room de la modification du SoundPad pour synchronisation
+        room->notifySoundPadModified(board, pad);
+    });
+    
     // Connecter les signaux de la room pour mettre à jour l'interface utilisateur
     connect(room, &Room::soundpadAdded, this, [this](Board *board, SoundPad *pad) {
         // Mettre à jour l'interface utilisateur si nécessaire
@@ -497,6 +520,14 @@ void MainWindow::connectBoardSignals(Board *board, Room *room)
     connect(room, &Room::soundpadRemoved, this, [this](Board *board, SoundPad *pad) {
         // Mettre à jour l'interface utilisateur si nécessaire
         qDebug() << "Signal soundpadRemoved reçu de la room pour le board" << board->objectName();
+        
+        // Actualiser l'affichage du board si nécessaire
+        board->update();
+    });
+    
+    connect(room, &Room::soundpadModified, this, [this](Board *board, SoundPad *pad) {
+        // Mettre à jour l'interface utilisateur si nécessaire
+        qDebug() << "Signal soundpadModified reçu de la room pour le board" << board->objectName();
         
         // Actualiser l'affichage du board si nécessaire
         board->update();
