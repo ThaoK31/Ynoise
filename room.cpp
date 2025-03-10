@@ -75,7 +75,7 @@ QString Room::generateInvitationCode()
     // Générer le code d'invitation (format: adresse_ip:port)
     m_invitationCode = QString("%1:%2").arg(localAddress).arg(m_port);
     qDebug() << "Code d'invitation généré:" << m_invitationCode;
-    
+
     return m_invitationCode;
 }
 
@@ -311,7 +311,7 @@ void Room::broadcastMessage(const QString &type, const QJsonObject &data)
 {
     if (!m_isHost)
         return;
-    
+
     QJsonObject message;
     message["type"] = type;
     message["data"] = data;
