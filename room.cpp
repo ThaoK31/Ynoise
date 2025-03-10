@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
+#include <QDir>
 #include <QTimer>
 #include <QRandomGenerator>
 #include <QStringList>
@@ -498,29 +499,41 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
         
         qDebug() << "Vérification des données binaires reçues:";
         
+        bool audioDataReceived = false;
         if (data.contains("audio_data")) {
             QString encodedAudio = data["audio_data"].toString();
             qDebug() << "  - Données audio encodées reçues:" << encodedAudio.length() << "caractères";
             
-            audioData = QByteArray::fromBase64(encodedAudio.toLatin1());
-            qDebug() << "  - Données audio décodées:" << audioData.size() << "octets";
-            
-            if (audioData.isEmpty() && !encodedAudio.isEmpty()) {
-                qDebug() << "  - ERREUR: Échec du décodage des données audio";
+            if (!encodedAudio.isEmpty()) {
+                audioData = QByteArray::fromBase64(encodedAudio.toLatin1());
+                qDebug() << "  - Données audio décodées:" << audioData.size() << "octets";
+                
+                if (audioData.isEmpty()) {
+                    qDebug() << "  - ERREUR: Échec du décodage des données audio";
+                } else {
+                    audioDataReceived = true;
+                    qDebug() << "  - Décodage des données audio réussi";
+                }
             }
         } else {
             qDebug() << "  - Pas de données audio reçues";
         }
         
+        bool imageDataReceived = false;
         if (data.contains("image_data")) {
             QString encodedImage = data["image_data"].toString();
             qDebug() << "  - Données image encodées reçues:" << encodedImage.length() << "caractères";
             
-            imageData = QByteArray::fromBase64(encodedImage.toLatin1());
-            qDebug() << "  - Données image décodées:" << imageData.size() << "octets";
-            
-            if (imageData.isEmpty() && !encodedImage.isEmpty()) {
-                qDebug() << "  - ERREUR: Échec du décodage des données image";
+            if (!encodedImage.isEmpty()) {
+                imageData = QByteArray::fromBase64(encodedImage.toLatin1());
+                qDebug() << "  - Données image décodées:" << imageData.size() << "octets";
+                
+                if (imageData.isEmpty()) {
+                    qDebug() << "  - ERREUR: Échec du décodage des données image";
+                } else {
+                    imageDataReceived = true;
+                    qDebug() << "  - Décodage des données image réussi";
+                }
             }
         } else {
             qDebug() << "  - Pas de données image reçues";
@@ -579,11 +592,34 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
             
             qDebug() << "Chargement des données audio et image:";
             
-            if (!audioData.isEmpty()) {
+            // Priorité aux données reçues en base64
+            if (audioDataReceived) {
                 qDebug() << "  - Définition des données audio depuis les données reçues";
                 newPad->setAudioData(audioData);
-                audioLoaded = true;
-                qDebug() << "  - Données audio définies sur le nouveau SoundPad:" << audioData.size() << "octets";
+                
+                // Vérifier si les données ont été correctement définies
+                if (!newPad->getAudioData().isEmpty()) {
+                    audioLoaded = true;
+                    qDebug() << "  - Données audio définies sur le nouveau SoundPad:" << audioData.size() << "octets";
+                    
+                    // Si le fichier n'existe pas localement, le sauvegarder
+                    if (!filePath.isEmpty() && !QFile::exists(filePath)) {
+                        QString localFilePath = filePath;
+                        QFileInfo fileInfo(localFilePath);
+                        if (!fileInfo.dir().exists()) {
+                            fileInfo.dir().mkpath(".");
+                        }
+                        
+                        qDebug() << "  - Sauvegarde du fichier audio reçu vers:" << localFilePath;
+                        if (newPad->saveAudioToFile(localFilePath)) {
+                            qDebug() << "  - Fichier audio sauvegardé avec succès";
+                        } else {
+                            qDebug() << "  - ERREUR: Échec de la sauvegarde du fichier audio";
+                        }
+                    }
+                } else {
+                    qDebug() << "  - ERREUR: Les données audio n'ont pas été définies correctement";
+                }
             } else if (!filePath.isEmpty() && QFile::exists(filePath)) {
                 // Essayer de charger depuis le fichier local si disponible
                 qDebug() << "  - Tentative de chargement audio depuis le fichier local:" << filePath;
@@ -591,11 +627,34 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
                 qDebug() << "  - Chargement audio depuis le fichier local:" << (audioLoaded ? "réussi" : "échoué");
             }
             
-            if (!imageData.isEmpty()) {
+            // Priorité aux données reçues en base64
+            if (imageDataReceived) {
                 qDebug() << "  - Définition des données image depuis les données reçues";
                 newPad->setImageData(imageData);
-                imageLoaded = true;
-                qDebug() << "  - Données image définies sur le nouveau SoundPad:" << imageData.size() << "octets";
+                
+                // Vérifier si les données ont été correctement définies
+                if (!newPad->getImageData().isEmpty()) {
+                    imageLoaded = true;
+                    qDebug() << "  - Données image définies sur le nouveau SoundPad:" << imageData.size() << "octets";
+                    
+                    // Si le fichier n'existe pas localement, le sauvegarder
+                    if (!imagePath.isEmpty() && !QFile::exists(imagePath)) {
+                        QString localImagePath = imagePath;
+                        QFileInfo fileInfo(localImagePath);
+                        if (!fileInfo.dir().exists()) {
+                            fileInfo.dir().mkpath(".");
+                        }
+                        
+                        qDebug() << "  - Sauvegarde du fichier image reçu vers:" << localImagePath;
+                        if (newPad->saveImageToFile(localImagePath)) {
+                            qDebug() << "  - Fichier image sauvegardé avec succès";
+                        } else {
+                            qDebug() << "  - ERREUR: Échec de la sauvegarde du fichier image";
+                        }
+                    }
+                } else {
+                    qDebug() << "  - ERREUR: Les données image n'ont pas été définies correctement";
+                }
             } else if (!imagePath.isEmpty() && QFile::exists(imagePath)) {
                 // Essayer de charger depuis le fichier local si disponible
                 qDebug() << "  - Tentative de chargement image depuis le fichier local:" << imagePath;
