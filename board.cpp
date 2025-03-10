@@ -72,6 +72,19 @@ SoundPad* Board::addSoundPad()
     return pad;
 }
 
+SoundPad* Board::getSoundPadById(const QString &padId)
+{
+    // Parcourir la liste des SoundPads pour trouver celui avec l'identifiant correspondant
+    for (SoundPad* pad : m_soundPads) {
+        if (pad->objectName() == padId) {
+            return pad;
+        }
+    }
+    // Retourner nullptr si aucun SoundPad n'est trouvé avec cet identifiant
+    return nullptr;
+}
+
+
 bool Board::addSoundPadFromRemote(SoundPad* pad)
 {
     if (!pad) {

@@ -343,6 +343,32 @@ void Room::sendMessage(QTcpSocket *socket, const QString &type, const QJsonObjec
 
 void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonObject &data)
 {
+    if (type == "soundpad_removed") {
+        // Récupérer les informations du SoundPad supprimé
+        QString boardId = data["board_id"].toString();
+        QString padId = data["pad_id"].toString();
+
+        qDebug() << "Message 'soundpad_removed' reçu pour le board" << boardId << "et le pad" << padId;
+
+        // Vérifier que nous avons un board correspondant
+        Board *targetBoard = nullptr;
+        if (m_board && m_board->objectName() == boardId) {
+            targetBoard = m_board;
+        }
+
+        if (targetBoard) {
+            // Supprimer le SoundPad du board
+            SoundPad *padToRemove = targetBoard->getSoundPadById(padId);
+            if (padToRemove) {
+                targetBoard->removeSoundPad(padToRemove);
+                qDebug() << "SoundPad" << padId << "supprimé du board" << boardId;
+            } else {
+                qDebug() << "SoundPad" << padId << "non trouvé dans le board" << boardId;
+            }
+        } else {
+            qDebug() << "Impossible de trouver le board" << boardId << "pour supprimer le SoundPad";
+        }
+    }
     if (type == "join") {
         // Un utilisateur vient de rejoindre
         QString username = data["username"].toString();

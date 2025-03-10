@@ -48,6 +48,8 @@ public:
      * Cette méthode publique permet de réorganiser l'affichage des SoundPads
      */
     void updateDisplay() { reorganizeGrid(); }
+    SoundPad* getSoundPadById(const QString &padId);
+
 
 public slots:
     /**
