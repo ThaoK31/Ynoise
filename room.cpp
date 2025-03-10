@@ -474,6 +474,11 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
         }
     }
     else if (type == "soundpad_added") {
+        QString audioDataStr = data["audio_data"].toString();
+        qDebug() << "  - Vérification encodage audio: " << (audioDataStr.isEmpty() ? "VIDE!" : "OK")
+                 << " (premiers 20 caractères: " << (audioDataStr.length() > 20 ? audioDataStr.left(20) + "..." : audioDataStr) << ")";
+
+
         // Récupérer les informations du SoundPad
         QString boardId = data["board_id"].toString();
         QString padId = data["pad_id"].toString();
@@ -496,7 +501,9 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
         // Récupérer les données binaires encodées en base64
         QByteArray audioData;
         QByteArray imageData;
-        
+
+
+
         qDebug() << "Vérification des données binaires reçues:";
         
         bool audioDataReceived = false;
@@ -818,7 +825,7 @@ void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
         
         broadcastMessage("soundpad_added", padData);
     } else if (m_clientSocket && m_clientSocket->state() == QAbstractSocket::ConnectedState) {
-        qDebug() << "Envoi du message 'soundpad_added' à l'hôte";
+        qDebug() << "Envoi du message 'soundpad_added' à l'hôte : ", padData, " l'hote : ", m_clientSocket;
         sendMessage(m_clientSocket, "soundpad_added", padData);
     }
     
