@@ -4,6 +4,8 @@
 #include <QMessageBox>
 #include <QMenu>
 #include <QAction>
+#include <QDebug>
+#include <QDateTime>
 
 Board::Board(const QString &title, QWidget *parent)
     : QWidget(parent)
@@ -63,6 +65,11 @@ SoundPad* Board::addSoundPad()
     // Réorganisation de la grille
     reorganizeGrid();
     
+    // Connecter le signal de modification
+    connect(pad, &SoundPad::soundPadModified, this, [this, pad]() {
+        emit soundPadModified(pad);
+    });
+    
     // Configurer immédiatement le pad
     pad->editMetadata();
     
@@ -109,6 +116,11 @@ bool Board::addSoundPadFromRemote(SoundPad* pad)
     // Définir le parent du pad comme étant ce board
     pad->setParent(this);
     
+    // Connecter le signal de modification
+    connect(pad, &SoundPad::soundPadModified, this, [this, pad]() {
+        emit soundPadModified(pad);
+    });
+    
     // Ajout à la liste
     m_soundPads.append(pad);
     
@@ -142,7 +154,7 @@ void Board::removeSoundPad(SoundPad* pad)
 
 void Board::setupUi()
 {
-    // Création du layout principal
+    // Configuration du layout principal
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(10, 10, 10, 10);
     mainLayout->setSpacing(10);

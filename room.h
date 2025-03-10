@@ -165,6 +165,13 @@ public slots:
      */
     void notifySoundPadRemoved(Board *board, SoundPad *pad);
 
+    /**
+     * @brief Notifie les autres utilisateurs de la modification d'un SoundPad
+     * @param board Board contenant le SoundPad
+     * @param pad SoundPad modifié
+     */
+    void notifySoundPadModified(Board *board, SoundPad *pad);
+
 signals:
     /**
      * @brief Signal émis lorsqu'un utilisateur se connecte
@@ -191,6 +198,13 @@ signals:
      * @param pad SoundPad supprimé
      */
     void soundpadRemoved(Board *board, SoundPad *pad);
+
+    /**
+     * @brief Signal émis lorsqu'un SoundPad est modifié
+     * @param board Tableau contenant le SoundPad
+     * @param pad SoundPad modifié
+     */
+    void soundpadModified(Board *board, SoundPad *pad);
     
     /**
      * @brief Signal émis lorsque le serveur démarre

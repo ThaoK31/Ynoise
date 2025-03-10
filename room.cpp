@@ -265,19 +265,39 @@ void Room::handleNewConnection()
 void Room::handleDataReceived()
 {
     QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
-    if (!socket)
+    if (!socket) {
+        qDebug() << "ERREUR: handleDataReceived appelé sans socket valide";
         return;
+    }
     
     QByteArray data = socket->readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
+    qDebug() << "Données reçues de" << (m_users.contains(socket) ? m_users[socket].username : "inconnu") 
+             << "taille:" << data.size() << "octets";
     
-    if (!doc.isObject())
+    if (data.isEmpty()) {
+        qDebug() << "AVERTISSEMENT: Données reçues vides";
         return;
+    }
+    
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    
+    if (parseError.error != QJsonParseError::NoError) {
+        qDebug() << "ERREUR: Impossible de parser les données JSON:" << parseError.errorString();
+        qDebug() << "Contenu reçu:" << data;
+        return;
+    }
+    
+    if (!doc.isObject()) {
+        qDebug() << "ERREUR: Document JSON reçu n'est pas un objet";
+        return;
+    }
     
     QJsonObject message = doc.object();
     QString messageType = message["type"].toString();
     QJsonObject messageData = message["data"].toObject();
     
+    qDebug() << "Message de type" << messageType << "reçu et prêt à être traité";
     processMessage(socket, messageType, messageData);
 }
 
@@ -309,8 +329,10 @@ void Room::handleClientDisconnected()
 
 void Room::broadcastMessage(const QString &type, const QJsonObject &data, QTcpSocket *excludeSocket)
 {
-    if (!m_isHost)
+    if (!m_isHost) {
+        qDebug() << "ERREUR: Tentative de diffusion depuis un client";
         return;
+    }
     
     QJsonObject message;
     message["type"] = type;
@@ -319,7 +341,8 @@ void Room::broadcastMessage(const QString &type, const QJsonObject &data, QTcpSo
     QJsonDocument doc(message);
     QByteArray byteArray = doc.toJson(QJsonDocument::Compact);
     
-    qDebug() << "Broadcasting message type:" << type << "to" << m_users.size() << "clients";
+    qDebug() << "Broadcasting message type:" << type << "to" << m_users.size() << "clients" 
+             << "taille:" << byteArray.size() << "octets";
     
     for (auto it = m_users.begin(); it != m_users.end(); ++it) {
         // Ignorer le socket exclu (généralement l'expéditeur)
@@ -331,15 +354,19 @@ void Room::broadcastMessage(const QString &type, const QJsonObject &data, QTcpSo
         if (it.key() && it.key()->state() == QTcpSocket::ConnectedState) {
             qDebug() << "Sending to client:" << it.value().username;
             it.key()->write(byteArray);
-            it.key()->flush(); // Ensure data is sent immediately
+            it.key()->flush(); // S'assurer que les données sont envoyées immédiatement
+        } else {
+            qDebug() << "ERREUR: Socket client invalide ou déconnecté";
         }
     }
 }
 
 void Room::sendMessage(QTcpSocket *socket, const QString &type, const QJsonObject &data)
 {
-    if (!socket || socket->state() != QTcpSocket::ConnectedState)
+    if (!socket || socket->state() != QTcpSocket::ConnectedState) {
+        qDebug() << "ERREUR: Tentative d'envoi de message à un socket non connecté ou invalide";
         return;
+    }
     
     QJsonObject message;
     message["type"] = type;
@@ -348,7 +375,9 @@ void Room::sendMessage(QTcpSocket *socket, const QString &type, const QJsonObjec
     QJsonDocument doc(message);
     QByteArray byteArray = doc.toJson(QJsonDocument::Compact);
     
+    qDebug() << "Envoi du message de type:" << type << "taille:" << byteArray.size() << "octets";
     socket->write(byteArray);
+    socket->flush(); // S'assurer que les données sont envoyées immédiatement
 }
 
 void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonObject &data)
@@ -492,14 +521,39 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
         QKeySequence shortcut = QKeySequence(shortcutString);
         
         qDebug() << "Message 'soundpad_added' reçu pour le board" << boardId << "et le pad" << padId;
+        qDebug() << "Détails du SoundPad reçu: titre=" << title << ", filePath=" << filePath;
+        
+        // IMPORTANT: Nous attendons toujours le board avec l'ID "1" pour tous les messages réseau
+        if (boardId != "1") {
+            qDebug() << "AVERTISSEMENT: ID de board inattendu:" << boardId << ". Utilisation de l'ID '1' à la place.";
+            boardId = "1";
+        }
         
         // Vérifier que nous avons un board correspondant
         Board *targetBoard = nullptr;
-        if (m_board && m_board->objectName() == boardId) {
+        if (m_board && (m_board->objectName() == boardId || m_board->objectName() == "1")) {
             targetBoard = m_board;
+            qDebug() << "Board cible trouvé:" << targetBoard->objectName();
+            
+            // Assurer que le board a toujours l'ID correct "1"
+            if (targetBoard->objectName() != "1") {
+                qDebug() << "Correction de l'ID du board de" << targetBoard->objectName() << "vers '1'";
+                targetBoard->setObjectName("1");
+            }
+        } else {
+            qDebug() << "ERREUR: Board cible introuvable. objectName du board local:" << (m_board ? m_board->objectName() : "null");
         }
         
         if (targetBoard) {
+            // Vérifier si nous avons déjà un pad avec cet ID
+            SoundPad* existingPad = targetBoard->getSoundPadById(padId);
+            if (existingPad) {
+                qDebug() << "Un SoundPad avec l'ID" << padId << "existe déjà, ignoré";
+                return;
+            }
+            
+            qDebug() << "Création d'un nouveau SoundPad avec ID:" << padId;
+            
             // Créer un nouveau SoundPad
             SoundPad *newPad = new SoundPad(title, filePath, imagePath, canDuplicatePlay, shortcut, targetBoard);
             newPad->setObjectName(padId);
@@ -512,25 +566,23 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
             if (!ajoutReussi) {
                 // Si l'ajout a échoué (pad en double), supprimer le pad créé
                 delete newPad;
-                qDebug() << "Suppression du pad en double, l'ajout a échoué";
+                qDebug() << "ERREUR: Suppression du pad en double, l'ajout a échoué";
                 return;
             }
+            
+            qDebug() << "Ajout du SoundPad réussi avec ID:" << padId;
             
             // Si nous sommes l'hôte, retransmettre aux autres clients seulement si l'ajout a réussi
             if (m_isHost) {
                 qDebug() << "Retransmission du SoundPad aux autres clients";
                 
-                // Créer une copie des données pour éviter les problèmes de référence
-                QJsonObject dataCopy = data;
+                // Exclure le socket qui a envoyé ce message pour éviter les duplications
+                broadcastMessage("soundpad_added", data, socket);
                 
-                // Utilisez broadcastMessage pour envoyer à tous les clients
-                // au lieu d'une boucle manuelle
-                broadcastMessage("soundpad_added", dataCopy);
-                
-                qDebug() << "SoundPad diffusé à tous les clients";
+                qDebug() << "SoundPad diffusé à tous les autres clients";
             }
         } else {
-            qDebug() << "Impossible de trouver le board" << boardId << "pour ajouter le SoundPad";
+            qDebug() << "ERREUR: Impossible de trouver le board" << boardId << "pour ajouter le SoundPad";
         }
     }
     else if (type == "board_added") {
@@ -551,7 +603,43 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
             qDebug() << "Board principal défini avec l'ID fixe: 1";
         }
     }
-    
+    else if (type == "soundpad_modified") {
+        // Récupérer les données du pad
+        QString padId = data["id"].toString();
+        QString boardId = data["boardId"].toString();
+        
+        qDebug() << "Message 'soundpad_modified' reçu pour le board" << boardId << "et le pad" << padId;
+
+        // Trouver le board concerné
+        Board *board = m_board;
+        if (board && board->objectName() == boardId) {
+            // Trouver le pad à modifier
+            SoundPad *pad = board->getSoundPadById(padId);
+            if (pad) {
+                qDebug() << "Pad trouvé, application des modifications";
+                
+                // Mettre à jour les propriétés du pad
+                pad->setTitle(data["title"].toString());
+                pad->setFilePath(data["filePath"].toString());
+                pad->setImagePath(data["imagePath"].toString());
+                pad->setCanDuplicatePlay(data["canDuplicatePlay"].toBool());
+                pad->setShortcut(QKeySequence(data["shortcut"].toString()));
+
+                // Émettre le signal de modification
+                emit soundpadModified(board, pad);
+                
+                // Si nous sommes l'hôte, retransmettre aux autres clients
+                if (m_isHost) {
+                    qDebug() << "Retransmission des modifications aux autres clients";
+                    broadcastMessage("soundpad_modified", data, socket);
+                }
+            } else {
+                qDebug() << "Impossible de trouver le pad" << padId << "dans le board" << boardId;
+            }
+        } else {
+            qDebug() << "Impossible de trouver le board" << boardId << "pour modifier le SoundPad";
+        }
+    }
     // Autres messages...
 }
 
@@ -652,6 +740,56 @@ void Room::notifySoundPadRemoved(Board *board, SoundPad *pad)
     // Émettre le signal local avec le pad et le board
     // Important : Les objets board et pad doivent toujours être valides à ce stade
     emit soundpadRemoved(board, pad);
+}
+
+void Room::notifySoundPadModified(Board *board, SoundPad *pad)
+{
+    if (!board || !pad) {
+        qDebug() << "ERREUR: board ou pad invalide dans notifySoundPadModified";
+        return;
+    }
+
+    qDebug() << "Entrée dans notifySoundPadModified pour board:" << (board ? board->objectName() : "null") 
+             << "pad:" << (pad ? pad->objectName() : "null");
+
+    // Utiliser l'ID fixe "1" pour tous les boards
+    if (board->objectName().isEmpty()) {
+        board->setObjectName("1");
+        qDebug() << "ID fixe attribué au board dans notifySoundPadModified: 1";
+    }
+
+    // Vérifier que le pad a un ID
+    if (pad->objectName().isEmpty()) {
+        QString padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
+        pad->setObjectName(padId);
+        qDebug() << "ID généré pour le pad dans notifySoundPadModified:" << padId;
+    }
+
+    // Créer un objet JSON avec les informations du pad
+    QJsonObject padData;
+    padData["id"] = pad->objectName();
+    padData["title"] = pad->getTitle();
+    padData["filePath"] = pad->getFilePath();
+    padData["imagePath"] = pad->getImagePath();
+    padData["canDuplicatePlay"] = pad->getCanDuplicatePlay();
+    padData["shortcut"] = pad->getShortcut().toString();
+    padData["boardId"] = board->objectName();
+
+    qDebug() << "Diffusion du message soundpad_modified aux clients";
+    
+    // Diffuser le message à tous les clients sauf l'émetteur
+    if (m_isHost) {
+        qDebug() << "Diffusion du message 'soundpad_modified' à tous les clients";
+        broadcastMessage("soundpad_modified", padData);
+    } else if (m_clientSocket && m_clientSocket->state() == QAbstractSocket::ConnectedState) {
+        qDebug() << "Envoi du message 'soundpad_modified' à l'hôte";
+        sendMessage(m_clientSocket, "soundpad_modified", padData);
+    }
+
+    // Émettre le signal local
+    emit soundpadModified(board, pad);
+
+    qDebug() << "SoundPad" << pad->objectName() << "modifié et diffusé aux clients";
 }
 
 void Room::stopServer()

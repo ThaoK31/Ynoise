@@ -95,6 +95,12 @@ signals:
      */
     void soundPadRemoved(SoundPad *pad);
 
+    /**
+     * @brief Signal émis lorsqu'un SoundPad est modifié
+     * @param pad SoundPad modifié
+     */
+    void soundPadModified(SoundPad *pad);
+
 private:
     QString m_title;                  // Titre du tableau
     QVector<SoundPad*> m_soundPads;   // Liste des SoundPads
