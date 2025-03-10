@@ -481,6 +481,20 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
         QString shortcutString = data["shortcut"].toString();
         QKeySequence shortcut = QKeySequence(shortcutString);
         
+        // Récupérer les données binaires encodées en base64
+        QByteArray audioData;
+        QByteArray imageData;
+        
+        if (data.contains("audio_data")) {
+            audioData = QByteArray::fromBase64(data["audio_data"].toString().toLatin1());
+            qDebug() << "Données audio reçues:" << audioData.size() << "octets";
+        }
+        
+        if (data.contains("image_data")) {
+            imageData = QByteArray::fromBase64(data["image_data"].toString().toLatin1());
+            qDebug() << "Données image reçues:" << imageData.size() << "octets";
+        }
+        
         qDebug() << "Message 'soundpad_added' reçu pour le board" << boardId << "et le pad" << padId;
         
         // Vérifier que nous avons un board correspondant
@@ -493,6 +507,17 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
             // Créer un nouveau SoundPad
             SoundPad *newPad = new SoundPad(title, filePath, imagePath, canDuplicatePlay, shortcut, targetBoard);
             newPad->setObjectName(padId);
+            
+            // Définir les données binaires si disponibles
+            if (!audioData.isEmpty()) {
+                newPad->setAudioData(audioData);
+                qDebug() << "Données audio définies sur le nouveau SoundPad";
+            }
+            
+            if (!imageData.isEmpty()) {
+                newPad->setImageData(imageData);
+                qDebug() << "Données image définies sur le nouveau SoundPad";
+            }
             
             qDebug() << "Tentative d'ajout d'un nouveau SoundPad:" << padId;
             
@@ -575,6 +600,20 @@ void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
     padData["image_path"] = pad->getImagePath();
     padData["can_duplicate_play"] = pad->getCanDuplicatePlay();
     padData["shortcut"] = pad->getShortcut().toString();
+    
+    // Ajouter les données binaires encodées en base64
+    QByteArray audioData = pad->getAudioData();
+    QByteArray imageData = pad->getImageData();
+    
+    if (!audioData.isEmpty()) {
+        padData["audio_data"] = QString(audioData.toBase64());
+        qDebug() << "Données audio ajoutées:" << audioData.size() << "octets";
+    }
+    
+    if (!imageData.isEmpty()) {
+        padData["image_data"] = QString(imageData.toBase64());
+        qDebug() << "Données image ajoutées:" << imageData.size() << "octets";
+    }
     
     // Diffuser à tous les clients si nous sommes l'hôte
     if (m_isHost) {
