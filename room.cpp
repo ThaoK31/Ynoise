@@ -307,7 +307,7 @@ void Room::handleClientDisconnected()
     socket->deleteLater();
 }
 
-void Room::broadcastMessage(const QString &type, const QJsonObject &data)
+void Room::broadcastMessage(const QString &type, const QJsonObject &data, QTcpSocket *excludeSocket)
 {
     if (!m_isHost)
         return;
@@ -319,9 +319,19 @@ void Room::broadcastMessage(const QString &type, const QJsonObject &data)
     QJsonDocument doc(message);
     QByteArray byteArray = doc.toJson(QJsonDocument::Compact);
     
+    qDebug() << "Broadcasting message type:" << type << "to" << m_users.size() << "clients";
+    
     for (auto it = m_users.begin(); it != m_users.end(); ++it) {
+        // Ignorer le socket exclu (généralement l'expéditeur)
+        if (excludeSocket && it.key() == excludeSocket) {
+            qDebug() << "Skipping sender client:" << it.value().username;
+            continue;
+        }
+        
         if (it.key() && it.key()->state() == QTcpSocket::ConnectedState) {
+            qDebug() << "Sending to client:" << it.value().username;
             it.key()->write(byteArray);
+            it.key()->flush(); // Ensure data is sent immediately
         }
     }
 }
@@ -507,13 +517,17 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
             }
             
             // Si nous sommes l'hôte, retransmettre aux autres clients seulement si l'ajout a réussi
-            if (m_isHost && socket) {
+            if (m_isHost) {
                 qDebug() << "Retransmission du SoundPad aux autres clients";
-                for (auto it = m_users.begin(); it != m_users.end(); ++it) {
-                    if (it.key() != socket) {
-                        sendMessage(it.key(), "soundpad_added", data);
-                    }
-                }
+                
+                // Créer une copie des données pour éviter les problèmes de référence
+                QJsonObject dataCopy = data;
+                
+                // Utilisez broadcastMessage pour envoyer à tous les clients
+                // au lieu d'une boucle manuelle
+                broadcastMessage("soundpad_added", dataCopy);
+                
+                qDebug() << "SoundPad diffusé à tous les clients";
             }
         } else {
             qDebug() << "Impossible de trouver le board" << boardId << "pour ajouter le SoundPad";

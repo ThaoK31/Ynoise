@@ -241,8 +241,9 @@ private:
      * @brief Envoie un message à tous les clients
      * @param type Type de message
      * @param data Données à envoyer
+     * @param excludeSocket Socket à exclure de la diffusion (optionnel)
      */
-    void broadcastMessage(const QString &type, const QJsonObject &data);
+    void broadcastMessage(const QString &type, const QJsonObject &data, QTcpSocket *excludeSocket = nullptr);
     
     /**
      * @brief Envoie un message à un client spécifique
