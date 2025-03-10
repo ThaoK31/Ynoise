@@ -10,6 +10,9 @@
 #include <QVBoxLayout>
 #include <QAudioOutput>
 #include <QMediaPlayer>
+#include <QByteArray>
+#include <QBuffer>
+#include <QDebug>
 
 /**
  * @brief Classe représentant un pad sonore pouvant jouer un son avec une image associée
@@ -22,8 +25,8 @@ public:
     /**
      * @brief Constructeur de SoundPad
      * @param title Titre du pad
-     * @param filePath Chemin vers le fichier audio
-     * @param imagePath Chemin vers l'image (optionnel)
+     * @param filePath Chemin vers le fichier audio (optionnel, pour compatibilité)
+     * @param imagePath Chemin vers l'image (optionnel, pour compatibilité)
      * @param canDuplicatePlay Si true, peut jouer plusieurs fois simultanément
      * @param shortcut Raccourci clavier (optionnel)
      * @param parent Widget parent
@@ -58,6 +61,31 @@ public:
     QKeySequence getShortcut() const { return m_shortcut; }
     void setShortcut(const QKeySequence &shortcut);
 
+    // Nouvelles méthodes pour gérer les données audio et image
+    QByteArray getAudioData() const { return m_audioData; }
+    void setAudioData(const QByteArray &audioData);
+    
+    QByteArray getImageData() const { return m_imageData; }
+    void setImageData(const QByteArray &imageData);
+    
+    // Méthodes pour charger/sauvegarder depuis/vers un fichier
+    bool loadAudioFromFile(const QString &filePath);
+    bool loadImageFromFile(const QString &imagePath);
+    bool saveAudioToFile(const QString &filePath) const;
+    bool saveImageToFile(const QString &filePath) const;
+
+    // Méthode pour obtenir des informations sur les données
+    QString getAudioInfo() const;
+    QString getImageInfo() const;
+
+    // Méthode pour sérialiser les données pour le partage
+    QByteArray serialize() const;
+    bool deserialize(const QByteArray &data);
+
+    // Log
+    void log(const QString &message);
+    void logConst(const QString &message) const;
+
 public slots:
     /**
      * @brief Importe un fichier audio
@@ -81,6 +109,11 @@ signals:
      */
     void metadataChanged();
 
+    /**
+     * @brief Signal émis pour les messages de log
+     */
+    void logMessage(const QString &message);
+
 protected:
     /**
      * @brief Gère les événements de glisser-déposer
@@ -100,12 +133,17 @@ protected:
 
 private:
     QString m_title;          // Titre du pad
-    QString m_filePath;       // Chemin vers le fichier audio
-    QString m_imagePath;      // Chemin vers l'image
+    QString m_filePath;       // Chemin vers le fichier audio (pour compatibilité)
+    QString m_imagePath;      // Chemin vers l'image (pour compatibilité)
     QPixmap m_image;          // Image associée
     bool m_canDuplicatePlay;  // Si true, peut jouer plusieurs fois simultanément 
     bool m_isPlaying;         // Indique si le son est en cours de lecture
     QKeySequence m_shortcut;  // Raccourci clavier associé
+
+    // Données binaires
+    QByteArray m_audioData;   // Contenu du fichier audio
+    QByteArray m_imageData;   // Contenu du fichier image (pour sauvegarde)
+    QBuffer *m_audioBuffer;   // Buffer pour le lecteur média
 
     // Éléments UI
     QPushButton *m_button;    // Bouton principal du pad
@@ -126,6 +164,11 @@ private:
      * @brief Met à jour l'apparence en fonction des propriétés
      */
     void updateUI();
+    
+    /**
+     * @brief Configure le lecteur média avec les données audio
+     */
+    void updateMediaPlayer();
 };
 
 #endif // SOUNDPAD_H
