@@ -769,6 +769,11 @@ void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
         QByteArray encodedAudio = audioData.toBase64();
         padData["audio_data"] = QString(encodedAudio);
         qDebug() << "  - Données audio ajoutées:" << audioData.size() << "octets (taille encodée:" << encodedAudio.size() << "octets)";
+        
+        // Récupérer la valeur en tant que QString pour pouvoir utiliser size() et left()
+        QString audioDataStr = padData["audio_data"].toString();
+        qDebug() << "  - Vérification encodage audio: " << (audioDataStr.isEmpty() ? "VIDE!" : "OK") 
+                 << " (premiers 20 caractères: " << (audioDataStr.length() > 20 ? audioDataStr.left(20) + "..." : audioDataStr) << ")";
     } else {
         qDebug() << "  - Pas de données audio à envoyer";
     }
@@ -777,13 +782,40 @@ void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
         QByteArray encodedImage = imageData.toBase64();
         padData["image_data"] = QString(encodedImage);
         qDebug() << "  - Données image ajoutées:" << imageData.size() << "octets (taille encodée:" << encodedImage.size() << "octets)";
+        
+        // Récupérer la valeur en tant que QString pour pouvoir utiliser size() et left()
+        QString imageDataStr = padData["image_data"].toString();
+        qDebug() << "  - Vérification encodage image: " << (imageDataStr.isEmpty() ? "VIDE!" : "OK") 
+                 << " (premiers 20 caractères: " << (imageDataStr.length() > 20 ? imageDataStr.left(20) + "..." : imageDataStr) << ")";
     } else {
         qDebug() << "  - Pas de données image à envoyer";
+    }
+    
+    qDebug() << "Vérification finale des données avant envoi:";
+    if (padData.contains("audio_data")) {
+        QString audioDataStr = padData["audio_data"].toString();
+        qDebug() << "  - Données audio dans JSON: " << (audioDataStr.isEmpty() ? "VIDE!" : QString("%1 caractères").arg(audioDataStr.length()));
+    } else {
+        qDebug() << "  - Données audio dans JSON: ABSENTES!";
+    }
+    
+    if (padData.contains("image_data")) {
+        QString imageDataStr = padData["image_data"].toString();
+        qDebug() << "  - Données image dans JSON: " << (imageDataStr.isEmpty() ? "VIDE!" : QString("%1 caractères").arg(imageDataStr.length()));
+    } else {
+        qDebug() << "  - Données image dans JSON: ABSENTES!";
     }
     
     // Diffuser à tous les clients si nous sommes l'hôte
     if (m_isHost) {
         qDebug() << "Diffusion du message 'soundpad_added' à tous les clients";
+        
+        // Afficher un aperçu des données qui seront envoyées
+        QString audioDataStr = padData["audio_data"].toString();
+        QString imageDataStr = padData["image_data"].toString();
+        qDebug() << "Données audio à envoyer: " << (audioDataStr.isEmpty() ? "VIDE" : QString("%1 caractères").arg(audioDataStr.length()));
+        qDebug() << "Données image à envoyer: " << (imageDataStr.isEmpty() ? "VIDE" : QString("%1 caractères").arg(imageDataStr.length()));
+        
         broadcastMessage("soundpad_added", padData);
     } else if (m_clientSocket && m_clientSocket->state() == QAbstractSocket::ConnectedState) {
         qDebug() << "Envoi du message 'soundpad_added' à l'hôte";
