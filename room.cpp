@@ -3,8 +3,10 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QNetworkInterface>
-#include <QDateTime>
 #include <QThread>
+#include <QDateTime>
+#include <QFile>
+#include <QFileInfo>
 #include <QTimer>
 #include <QRandomGenerator>
 #include <QStringList>
@@ -481,18 +483,47 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
         QString shortcutString = data["shortcut"].toString();
         QKeySequence shortcut = QKeySequence(shortcutString);
         
+        qDebug() << "Réception d'un SoundPad:";
+        qDebug() << "  - ID Board:" << boardId;
+        qDebug() << "  - ID Pad:" << padId;
+        qDebug() << "  - Titre:" << title;
+        qDebug() << "  - Chemin audio:" << filePath;
+        qDebug() << "  - Chemin image:" << imagePath;
+        qDebug() << "  - Lecture multiple:" << (canDuplicatePlay ? "Oui" : "Non");
+        qDebug() << "  - Raccourci:" << shortcutString;
+        
         // Récupérer les données binaires encodées en base64
         QByteArray audioData;
         QByteArray imageData;
         
+        qDebug() << "Vérification des données binaires reçues:";
+        
         if (data.contains("audio_data")) {
-            audioData = QByteArray::fromBase64(data["audio_data"].toString().toLatin1());
-            qDebug() << "Données audio reçues:" << audioData.size() << "octets";
+            QString encodedAudio = data["audio_data"].toString();
+            qDebug() << "  - Données audio encodées reçues:" << encodedAudio.length() << "caractères";
+            
+            audioData = QByteArray::fromBase64(encodedAudio.toLatin1());
+            qDebug() << "  - Données audio décodées:" << audioData.size() << "octets";
+            
+            if (audioData.isEmpty() && !encodedAudio.isEmpty()) {
+                qDebug() << "  - ERREUR: Échec du décodage des données audio";
+            }
+        } else {
+            qDebug() << "  - Pas de données audio reçues";
         }
         
         if (data.contains("image_data")) {
-            imageData = QByteArray::fromBase64(data["image_data"].toString().toLatin1());
-            qDebug() << "Données image reçues:" << imageData.size() << "octets";
+            QString encodedImage = data["image_data"].toString();
+            qDebug() << "  - Données image encodées reçues:" << encodedImage.length() << "caractères";
+            
+            imageData = QByteArray::fromBase64(encodedImage.toLatin1());
+            qDebug() << "  - Données image décodées:" << imageData.size() << "octets";
+            
+            if (imageData.isEmpty() && !encodedImage.isEmpty()) {
+                qDebug() << "  - ERREUR: Échec du décodage des données image";
+            }
+        } else {
+            qDebug() << "  - Pas de données image reçues";
         }
         
         qDebug() << "Message 'soundpad_added' reçu pour le board" << boardId << "et le pad" << padId;
@@ -501,22 +532,84 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
         Board *targetBoard = nullptr;
         if (m_board && m_board->objectName() == boardId) {
             targetBoard = m_board;
+            qDebug() << "Board cible trouvé:" << boardId;
+        } else {
+            qDebug() << "ERREUR: Board cible non trouvé:" << boardId;
         }
         
         if (targetBoard) {
-            // Créer un nouveau SoundPad
-            SoundPad *newPad = new SoundPad(title, filePath, imagePath, canDuplicatePlay, shortcut, targetBoard);
+            qDebug() << "Création d'un nouveau SoundPad avec ID:" << padId;
+            
+            // Créer un nouveau SoundPad avec les données minimales
+            SoundPad *newPad = new SoundPad("", "", "", canDuplicatePlay, shortcut, targetBoard);
             newPad->setObjectName(padId);
             
+            // Définir les propriétés du SoundPad
+            newPad->setTitle(title);
+            qDebug() << "Titre défini:" << title;
+            
+            // Conserver les chemins de fichiers pour référence, même si nous avons les données binaires
+            if (!filePath.isEmpty()) {
+                newPad->setFilePath(filePath);
+                qDebug() << "Chemin audio défini:" << filePath;
+                
+                // Vérifier si le fichier existe localement
+                if (QFile::exists(filePath)) {
+                    qDebug() << "  - Le fichier audio existe localement";
+                } else {
+                    qDebug() << "  - Le fichier audio n'existe pas localement";
+                }
+            }
+            
+            if (!imagePath.isEmpty()) {
+                newPad->setImagePath(imagePath);
+                qDebug() << "Chemin image défini:" << imagePath;
+                
+                // Vérifier si le fichier existe localement
+                if (QFile::exists(imagePath)) {
+                    qDebug() << "  - Le fichier image existe localement";
+                } else {
+                    qDebug() << "  - Le fichier image n'existe pas localement";
+                }
+            }
+            
             // Définir les données binaires si disponibles
+            bool audioLoaded = false;
+            bool imageLoaded = false;
+            
+            qDebug() << "Chargement des données audio et image:";
+            
             if (!audioData.isEmpty()) {
+                qDebug() << "  - Définition des données audio depuis les données reçues";
                 newPad->setAudioData(audioData);
-                qDebug() << "Données audio définies sur le nouveau SoundPad";
+                audioLoaded = true;
+                qDebug() << "  - Données audio définies sur le nouveau SoundPad:" << audioData.size() << "octets";
+            } else if (!filePath.isEmpty() && QFile::exists(filePath)) {
+                // Essayer de charger depuis le fichier local si disponible
+                qDebug() << "  - Tentative de chargement audio depuis le fichier local:" << filePath;
+                audioLoaded = newPad->loadAudioFromFile(filePath);
+                qDebug() << "  - Chargement audio depuis le fichier local:" << (audioLoaded ? "réussi" : "échoué");
             }
             
             if (!imageData.isEmpty()) {
+                qDebug() << "  - Définition des données image depuis les données reçues";
                 newPad->setImageData(imageData);
-                qDebug() << "Données image définies sur le nouveau SoundPad";
+                imageLoaded = true;
+                qDebug() << "  - Données image définies sur le nouveau SoundPad:" << imageData.size() << "octets";
+            } else if (!imagePath.isEmpty() && QFile::exists(imagePath)) {
+                // Essayer de charger depuis le fichier local si disponible
+                qDebug() << "  - Tentative de chargement image depuis le fichier local:" << imagePath;
+                imageLoaded = newPad->loadImageFromFile(imagePath);
+                qDebug() << "  - Chargement image depuis le fichier local:" << (imageLoaded ? "réussi" : "échoué");
+            }
+            
+            // Vérifier si les données ont été chargées correctement
+            if (!audioLoaded && !filePath.isEmpty()) {
+                qDebug() << "AVERTISSEMENT: Impossible de charger les données audio pour le pad" << padId;
+            }
+            
+            if (!imageLoaded && !imagePath.isEmpty()) {
+                qDebug() << "AVERTISSEMENT: Impossible de charger les données image pour le pad" << padId;
             }
             
             qDebug() << "Tentative d'ajout d'un nouveau SoundPad:" << padId;
@@ -590,6 +683,12 @@ void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
     }
     
     qDebug() << "Notification d'ajout du SoundPad:" << pad->objectName() << "au Board:" << board->objectName();
+    qDebug() << "Détails du SoundPad à envoyer:";
+    qDebug() << "  - Titre:" << pad->getTitle();
+    qDebug() << "  - Chemin audio:" << pad->getFilePath();
+    qDebug() << "  - Chemin image:" << pad->getImagePath();
+    qDebug() << "  - Lecture multiple:" << (pad->getCanDuplicatePlay() ? "Oui" : "Non");
+    qDebug() << "  - Raccourci:" << pad->getShortcut().toString();
     
     // Créer les données à envoyer
     QJsonObject padData;
@@ -605,14 +704,22 @@ void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
     QByteArray audioData = pad->getAudioData();
     QByteArray imageData = pad->getImageData();
     
+    qDebug() << "Préparation des données binaires pour l'envoi:";
+    
     if (!audioData.isEmpty()) {
-        padData["audio_data"] = QString(audioData.toBase64());
-        qDebug() << "Données audio ajoutées:" << audioData.size() << "octets";
+        QByteArray encodedAudio = audioData.toBase64();
+        padData["audio_data"] = QString(encodedAudio);
+        qDebug() << "  - Données audio ajoutées:" << audioData.size() << "octets (taille encodée:" << encodedAudio.size() << "octets)";
+    } else {
+        qDebug() << "  - Pas de données audio à envoyer";
     }
     
     if (!imageData.isEmpty()) {
-        padData["image_data"] = QString(imageData.toBase64());
-        qDebug() << "Données image ajoutées:" << imageData.size() << "octets";
+        QByteArray encodedImage = imageData.toBase64();
+        padData["image_data"] = QString(encodedImage);
+        qDebug() << "  - Données image ajoutées:" << imageData.size() << "octets (taille encodée:" << encodedImage.size() << "octets)";
+    } else {
+        qDebug() << "  - Pas de données image à envoyer";
     }
     
     // Diffuser à tous les clients si nous sommes l'hôte
