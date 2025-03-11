@@ -11,6 +11,9 @@
 #include <QCheckBox>
 #include <QKeySequenceEdit>
 #include <QMenu>
+#include <QDebug>
+#include <QTimer>
+#include <QFileInfo>
 
 SoundPad::SoundPad(const QString &title, 
                    const QString &filePath,
@@ -22,9 +25,11 @@ SoundPad::SoundPad(const QString &title,
     , m_title(title)
     , m_filePath(filePath)
     , m_imagePath(imagePath)
+    , m_image()
+    , m_shortcut(shortcut)
     , m_canDuplicatePlay(canDuplicatePlay)
     , m_isPlaying(false)
-    , m_shortcut(shortcut)
+    , m_isSyncPlay(false)
     , m_button(nullptr)
     , m_imageLabel(nullptr)
     , m_titleLabel(nullptr)
@@ -44,6 +49,7 @@ SoundPad::SoundPad(const QString &title,
     // Configuration du lecteur média
     m_mediaPlayer = new QMediaPlayer(this);
     m_audioOutput = new QAudioOutput(this);
+    m_audioOutput->setVolume(1.0); // Assurer un volume audible
     m_mediaPlayer->setAudioOutput(m_audioOutput);
     
     if (!m_filePath.isEmpty()) {
@@ -56,6 +62,11 @@ SoundPad::SoundPad(const QString &title,
             m_isPlaying = false;
             m_button->setStyleSheet(""); // Réinitialiser le style
         }
+    });
+    
+    // Connexion pour détecter les erreurs médias
+    connect(m_mediaPlayer, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error error, const QString &errorString) {
+        qDebug() << "Erreur MediaPlayer:" << error << "-" << errorString;
     });
     
     // Accepter le glisser-déposer
@@ -133,14 +144,103 @@ void SoundPad::play()
         return;
     }
     
+    qDebug() << "SoundPad::play() - Tentative de lecture du son:" << m_filePath;
+    
     if (m_canDuplicatePlay || !m_isPlaying) {
+        // Vérifier que le MediaPlayer est correctement configuré
+        if (!m_mediaPlayer) {
+            qDebug() << "ERREUR: MediaPlayer non initialisé, création...";
+            m_mediaPlayer = new QMediaPlayer(this);
+            m_audioOutput = new QAudioOutput(this);
+            m_mediaPlayer->setAudioOutput(m_audioOutput);
+            
+            // Connexion du signal de fin de lecture
+            connect(m_mediaPlayer, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState state) {
+                if (state == QMediaPlayer::StoppedState) {
+                    m_isPlaying = false;
+                    m_button->setStyleSheet(""); // Réinitialiser le style
+                }
+            });
+        }
+        
+        // S'assurer que le MediaPlayer a bien le fichier
+        if (m_mediaPlayer->source() != QUrl::fromLocalFile(m_filePath)) {
+            qDebug() << "Configuration de la source audio:" << m_filePath;
+            m_mediaPlayer->setSource(QUrl::fromLocalFile(m_filePath));
+        }
+        
         // Si on peut dupliquer la lecture ou si le son n'est pas déjà en cours de lecture
+        qDebug() << "Lancement de la lecture...";
         m_mediaPlayer->play();
         m_isPlaying = true;
         
         // Indication visuelle que le pad est actif
         m_button->setStyleSheet("background-color: rgba(0, 255, 0, 100);");
+        
+        // Émettre le signal que le son est joué (sauf si c'est une lecture synchronisée)
+        if (!m_isSyncPlay) {
+            qDebug() << "Émission du signal soundPadPlayed";
+            emit soundPadPlayed(this);
+        } else {
+            qDebug() << "Lecture synchronisée, pas d'émission de signal";
+        }
+        // Réinitialiser le flag
+        m_isSyncPlay = false;
+    } else {
+        qDebug() << "Son déjà en cours de lecture et duplication désactivée";
     }
+}
+
+void SoundPad::playSync()
+{
+    // Marquer comme lecture synchronisée pour éviter la boucle de notification
+    m_isSyncPlay = true;
+    
+    qDebug() << "SoundPad::playSync() - Lecture synchronisée du son:" << m_filePath;
+    
+    // Vérifier si le fichier existe
+    if (m_filePath.isEmpty()) {
+        qDebug() << "ERREUR: Tentative de lecture d'un fichier vide";
+        m_isSyncPlay = false; // Réinitialiser le flag pour éviter des problèmes futurs
+        return;
+    }
+    
+    QFileInfo fileInfo(m_filePath);
+    if (!fileInfo.exists() || !fileInfo.isReadable()) {
+        qDebug() << "ERREUR: Fichier inexistant ou non lisible:" << m_filePath;
+        m_isSyncPlay = false;
+        return;
+    }
+
+    // Vérifier que le MediaPlayer est correctement initialisé
+    if (!m_mediaPlayer) {
+        qDebug() << "MediaPlayer non initialisé, création...";
+        m_mediaPlayer = new QMediaPlayer(this);
+        m_audioOutput = new QAudioOutput(this);
+        m_audioOutput->setVolume(1.0);
+        m_mediaPlayer->setAudioOutput(m_audioOutput);
+    }
+
+    // S'assurer que le MediaPlayer a le bon fichier audio
+    QUrl fileUrl = QUrl::fromLocalFile(m_filePath);
+    if (m_mediaPlayer->source() != fileUrl) {
+        qDebug() << "Configuration de la source:" << fileUrl.toString();
+        m_mediaPlayer->setSource(fileUrl);
+        
+        // Petit délai pour permettre au media player de charger la source
+        QTimer::singleShot(100, this, [this]() {
+            m_mediaPlayer->play();
+            m_isPlaying = true;
+            m_button->setStyleSheet("background-color: rgba(0, 255, 0, 100);");
+        });
+    } else {
+        // Jouer le son directement
+        m_mediaPlayer->play();
+        m_isPlaying = true;
+        m_button->setStyleSheet("background-color: rgba(0, 255, 0, 100);");
+    }
+    
+    qDebug() << "Lecture synchronisée initiée";
 }
 
 void SoundPad::editMetadata()

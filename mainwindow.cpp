@@ -532,4 +532,39 @@ void MainWindow::connectBoardSignals(Board *board, Room *room)
         // Actualiser l'affichage du board si nécessaire
         board->update();
     });
+    
+    // Connecter le signal soundPadPlayed pour la synchronisation de la lecture des sons
+    connect(board, &Board::soundPadAdded, this, [this, room, board](SoundPad *pad) {
+        // Connecter le signal soundPadPlayed de chaque nouveau SoundPad
+        connect(pad, &SoundPad::soundPadPlayed, this, [this, room, board](SoundPad *playedPad) {
+            qDebug() << "Signal soundPadPlayed émis par le pad" << playedPad->objectName() << ", notification envoyée à la room";
+            
+            // Vérifier que le pad a un ID avant la notification
+            if (playedPad->objectName().isEmpty()) {
+                QString padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
+                playedPad->setObjectName(padId);
+                qDebug() << "ID généré pour le pad avant lecture:" << padId;
+            }
+            
+            // Notifier la room que le SoundPad a été joué
+            room->notifySoundPadPlayed(board, playedPad);
+        });
+    });
+    
+    // Pour les SoundPads déjà existants
+    for (SoundPad* pad : board->getSoundPads()) {
+        connect(pad, &SoundPad::soundPadPlayed, this, [this, room, board, pad](SoundPad *playedPad) {
+            qDebug() << "Signal soundPadPlayed émis par un pad existant" << playedPad->objectName() << ", notification envoyée à la room";
+            
+            // Vérifier que le pad a un ID avant la notification
+            if (playedPad->objectName().isEmpty()) {
+                QString padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
+                playedPad->setObjectName(padId);
+                qDebug() << "ID généré pour le pad existant avant lecture:" << padId;
+            }
+            
+            // Notifier la room que le SoundPad a été joué
+            room->notifySoundPadPlayed(board, playedPad);
+        });
+    }
 }

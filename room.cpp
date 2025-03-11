@@ -640,6 +640,54 @@ void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonOb
             qDebug() << "Impossible de trouver le board" << boardId << "pour modifier le SoundPad";
         }
     }
+    else if (type == "soundpad_played") {
+        // Récupérer les informations du SoundPad
+        QString boardId = data["board_id"].toString();
+        QString padId = data["pad_id"].toString();
+        
+        qDebug() << "Message 'soundpad_played' reçu pour le board" << boardId << "et le pad" << padId;
+        
+        // IMPORTANT: Nous attendons toujours le board avec l'ID "1" pour tous les messages réseau
+        if (boardId != "1") {
+            qDebug() << "AVERTISSEMENT: ID de board inattendu:" << boardId << ". Utilisation de l'ID '1' à la place.";
+            boardId = "1";
+        }
+        
+        // Vérifier que nous avons un board correspondant
+        Board *targetBoard = nullptr;
+        if (m_board && (m_board->objectName() == boardId || m_board->objectName() == "1")) {
+            targetBoard = m_board;
+            qDebug() << "Board cible trouvé:" << targetBoard->objectName();
+            
+            // Assurer que le board a toujours l'ID correct "1"
+            if (targetBoard->objectName() != "1") {
+                qDebug() << "Correction de l'ID du board de" << targetBoard->objectName() << "vers '1'";
+                targetBoard->setObjectName("1");
+            }
+        } else {
+            qDebug() << "ERREUR: Board cible introuvable. objectName du board local:" << (m_board ? m_board->objectName() : "null");
+            return;
+        }
+        
+        // Trouver le SoundPad par son ID
+        SoundPad* pad = targetBoard->getSoundPadById(padId);
+        if (pad) {
+            qDebug() << "SoundPad trouvé, lecture du son";
+            // Jouer le son en mode synchronisé pour éviter une boucle infinie
+            pad->playSync();
+            
+            // Si nous sommes l'hôte, retransmettre aux autres clients
+            if (m_isHost) {
+                qDebug() << "Retransmission du message 'soundpad_played' aux autres clients";
+                broadcastMessage("soundpad_played", data, socket);
+            }
+            
+            // Émettre le signal local
+            emit soundpadPlayed(targetBoard, pad);
+        } else {
+            qDebug() << "ERREUR: Impossible de trouver le SoundPad" << padId << "dans le board" << boardId;
+        }
+    }
     // Autres messages...
 }
 
@@ -790,6 +838,54 @@ void Room::notifySoundPadModified(Board *board, SoundPad *pad)
     emit soundpadModified(board, pad);
 
     qDebug() << "SoundPad" << pad->objectName() << "modifié et diffusé aux clients";
+}
+
+void Room::notifySoundPadPlayed(Board *board, SoundPad *pad)
+{
+    qDebug() << "Entrée dans notifySoundPadPlayed pour board:" << (board ? board->objectName() : "null") 
+             << "pad:" << (pad ? pad->objectName() : "null");
+    
+    if (!board || !pad) {
+        qDebug() << "ERREUR: notifySoundPadPlayed appelé avec des pointeurs invalides";
+        return;
+    }
+    
+    // Utiliser l'ID fixe "1" pour tous les boards si nécessaire
+    if (board->objectName().isEmpty()) {
+        board->setObjectName("1");
+        qDebug() << "ID fixe attribué au board dans notifySoundPadPlayed: 1";
+    }
+    
+    // Vérifier que le pad a un identifiant
+    if (pad->objectName().isEmpty()) {
+        QString padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
+        pad->setObjectName(padId);
+        qDebug() << "ID généré pour un pad sans identifiant dans notifySoundPadPlayed:" << padId;
+    }
+    
+    qDebug() << "Notification de lecture du SoundPad:" << pad->objectName() << "au Board:" << board->objectName();
+    
+    // Créer les données à envoyer (juste l'ID du board et du pad)
+    QJsonObject padData;
+    padData["board_id"] = board->objectName();
+    padData["pad_id"] = pad->objectName();
+    
+    // PRINCIPAL CHANGEMENT: Si nous sommes l'hôte, nous devons toujours diffuser
+    // même si c'est nous qui jouons le son
+    if (m_isHost) {
+        qDebug() << "HÔTE: Diffusion du message 'soundpad_played' à TOUS les clients sans exception";
+        // Ici, nous ne spécifions pas de socket à exclure, donc tous les clients recevront le message
+        broadcastMessage("soundpad_played", padData, nullptr);
+    } else if (m_clientSocket && m_clientSocket->state() == QAbstractSocket::ConnectedState) {
+        qDebug() << "CLIENT: Envoi du message 'soundpad_played' à l'hôte";
+        sendMessage(m_clientSocket, "soundpad_played", padData);
+    }
+    
+    // Jouer le son localement
+    pad->playSync();
+    
+    // Émettre le signal local
+    emit soundpadPlayed(board, pad);
 }
 
 void Room::stopServer()
