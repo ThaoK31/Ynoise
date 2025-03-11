@@ -1,0 +1,54 @@
+# Création et synchronisation des SoundPads dans l'application
+
+## Fonctions pour l'hôte (serveur)
+
+1. **Création d'un nouveau SoundPad par l'hôte**
+   - Fichier: board.cpp (ligne ~150-170)
+   - Fonction: `SoundPad* Board::addSoundPad()`
+   - Cette fonction crée un nouveau SoundPad, l'ajoute à la liste des pads du board et émet un signal soundPadAdded
+
+2. **Notification des clients**
+   - Fichier: room.cpp (ligne ~920-950)
+   - Fonction: `void Room::notifySoundPadAdded(Board *board, SoundPad *pad)`
+   - Cette fonction est appelée quand un hôte crée un pad et doit informer tous les clients
+   - Elle sérialise les informations du pad en JSON et appelle broadcastMessage avec le type "soundpad_added"
+
+3. **Envoi des pads lors de la connexion d'un client**
+   - Fichier: room.cpp (ligne ~460-490)
+   - Fonction: Dans `processMessage()` pour le message "join"
+   - L'hôte envoie le board puis ses pads avec un délai de 300ms pour assurer la bonne réception
+   - Utilise `QTimer::singleShot()` pour envoyer les pads après que le client ait reçu le board
+
+## Fonctions pour le client
+
+1. **Réception d'un SoundPad du serveur**
+   - Fichier: room.cpp (dans la fonction `processMessage()`)
+   - Gestionnaire du message "soundpad_added"
+   - Cette fonction est appelée quand un client reçoit un message "soundpad_added"
+   - Elle désérialise les données JSON et crée ou met à jour le SoundPad dans le board principal
+
+2. **Création d'un SoundPad localement par le client**
+   - Fichier: board.cpp (similar to host's addSoundPad)
+   - Fonction: `SoundPad* Board::addSoundPad()`
+   - Même fonction que pour l'hôte, mais doit être suivie par un appel à room->notifySoundPadAdded()
+
+## Flux de création et synchronisation
+
+### Création par l'hôte:
+1. L'hôte crée un pad via `board->addSoundPad()`
+2. Le signal `soundPadAdded` est émis
+3. MainWindow capte ce signal et appelle `room->notifySoundPadAdded()`
+4. `notifySoundPadAdded()` envoie le message "soundpad_added" à tous les clients
+5. Les clients reçoivent le message et traitent le SoundPad
+
+### Création par le client:
+1. Le client crée un pad via `board->addSoundPad()`
+2. Le client appelle `room->notifySoundPadAdded()`
+3. `notifySoundPadAdded()` envoie le message "soundpad_added" à l'hôte uniquement
+4. L'hôte reçoit le message, traite le SoundPad et le diffuse aux autres clients
+5. Les autres clients reçoivent le message et traitent le SoundPad
+
+## Points de débogage importants
+- Vérifier que le board principal existe lors de l'envoi/réception
+- S'assurer que les IDs des pads sont uniques
+- Vérifier les logs de débogage pour suivre les messages
