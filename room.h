@@ -172,6 +172,13 @@ public slots:
      */
     void notifySoundPadModified(Board *board, SoundPad *pad);
 
+    /**
+     * @brief Notifie les autres utilisateurs qu'un SoundPad a été joué
+     * @param board Board contenant le SoundPad
+     * @param pad SoundPad joué
+     */
+    void notifySoundPadPlayed(Board *board, SoundPad *pad);
+
 signals:
     /**
      * @brief Signal émis lorsqu'un utilisateur se connecte
@@ -205,6 +212,13 @@ signals:
      * @param pad SoundPad modifié
      */
     void soundpadModified(Board *board, SoundPad *pad);
+    
+    /**
+     * @brief Signal émis lorsqu'un SoundPad est joué
+     * @param board Board contenant le SoundPad
+     * @param pad SoundPad joué
+     */
+    void soundpadPlayed(Board *board, SoundPad *pad);
     
     /**
      * @brief Signal émis lorsque le serveur démarre

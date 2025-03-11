@@ -71,7 +71,12 @@ public slots:
     void play();
     
     /**
-     * @brief Ouvre une fenêtre pour éditer les métadonnées
+     * @brief Joue le son sans émettre de signal (pour la synchronisation)
+     */
+    void playSync();
+    
+    /**
+     * @brief Ouvre la boîte de dialogue d'édition des métadonnées
      */
     void editMetadata();
 
@@ -86,6 +91,12 @@ signals:
      * @param pad Le SoundPad modifié
      */
     void soundPadModified(SoundPad* pad);
+    
+    /**
+     * @brief Signal émis lorsque le SoundPad est joué
+     * @param pad Ce SoundPad
+     */
+    void soundPadPlayed(SoundPad* pad);
 
 protected:
     /**
@@ -105,13 +116,14 @@ protected:
     void dropEvent(QDropEvent *event) override;
 
 private:
-    QString m_title;          // Titre du pad
-    QString m_filePath;       // Chemin vers le fichier audio
-    QString m_imagePath;      // Chemin vers l'image
-    QPixmap m_image;          // Image associée
-    bool m_canDuplicatePlay;  // Si true, peut jouer plusieurs fois simultanément 
-    bool m_isPlaying;         // Indique si le son est en cours de lecture
-    QKeySequence m_shortcut;  // Raccourci clavier associé
+    QString m_title;                  // Titre du SoundPad
+    QString m_filePath;               // Chemin vers le fichier audio
+    QString m_imagePath;              // Chemin vers l'image associée
+    QPixmap m_image;                  // Image associée
+    QKeySequence m_shortcut;          // Raccourci clavier
+    bool m_canDuplicatePlay;          // Si true, peut jouer plusieurs fois simultanément
+    bool m_isPlaying;                 // Indique si le son est en cours de lecture
+    bool m_isSyncPlay;                // Indique si la lecture est une lecture synchronisée (pour éviter les boucles)
 
     // Éléments UI
     QPushButton *m_button;    // Bouton principal du pad
