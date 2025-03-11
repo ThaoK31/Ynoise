@@ -16,278 +16,116 @@
 
 class User;
 
-/**
- * @brief Classe représentant une salle de collaboration
- * 
- * Cette classe gère les connexions client, le serveur, le tableau et les utilisateurs connectés.
- */
 class Room : public QObject
 {
     Q_OBJECT
     
 public:
-    /**
-     * @brief Structure définissant un utilisateur connecté
-     */
     struct ConnectedUser {
-        QString username;       // Nom d'utilisateur
-        QTcpSocket *socket;     // Socket de connexion
-        
+        QString username;
+        QTcpSocket *socket;    
+
         ConnectedUser(const QString &name = "", QTcpSocket *sock = nullptr)
             : username(name), socket(sock) {}
     };
     
-    /**
-     * @brief Constructeur
-     * @param name Nom de la room
-     * @param isHost Indique si l'utilisateur est l'hôte
-     * @param parent Objet parent
-     */
-    explicit Room(const QString &name, bool isHost = true, QObject *parent = nullptr);
-    
-    /**
-     * @brief Destructeur
-     */
-    ~Room();
-    
-    /**
-     * @brief Obtient le nom de la room
-     * @return Nom de la room
-     */
-    QString name() const { return m_name; }
-    
-    /**
-     * @brief Définit le nom de la room
-     * @param name Nouveau nom
-     */
-    void setName(const QString &name);
-    
-    /**
-     * @brief Démarre le serveur de la room
-     * @details Cette méthode initialise et configure le serveur pour accepter les connexions entrantes.
-     *          Elle définit aussi le code d'invitation pour permettre aux clients de se connecter.
-     * @return true si le serveur a démarré avec succès, false sinon
-     */
-    bool startServer();
-    
-    /**
-     * @brief Arrête le serveur de la room
-     * @details Ferme toutes les connexions client et arrête le serveur
-     */
-    void stopServer();
-    
-    /**
-     * @brief Établit une connexion client
-     * @param address Adresse du serveur
-     * @param port Port du serveur
-     * @param username Nom d'utilisateur
-     * @return true si la connexion a réussi
-     */
-    bool connectToRoom(const QString &address, int port, const QString &username);
-    
-    /**
-     * @brief Déconnecte l'utilisateur
-     */
-    void disconnect();
-    
-    /**
-     * @brief Rejoindre la room via un code d'invitation
-     * @param inviteCode Code d'invitation
-     * @param username Nom d'utilisateur
-     * @return true si la connexion a réussi
-     */
-    bool joinWithCode(const QString &inviteCode, const QString &username);
+    //--------------------------------------------------------------------------
+    // Construction et destruction
+    //--------------------------------------------------------------------------
 
-    /**
-     * @brief Obtient le code d'invitation pour cette room
-     * @return Code d'invitation
-     */
-    QString invitationCode() const { return m_invitationCode; }
-    
-    /**
-     * @brief Génère un nouveau code d'invitation pour cette room
-     * @details Le code d'invitation est de la forme "adresse_ip:port" et permet aux clients
-     *          de se connecter à cette room
-     * @return Nouveau code d'invitation
-     */
+    explicit Room(const QString &name, bool isHost = true, QObject *parent = nullptr);
+    ~Room();
+
+    //--------------------------------------------------------------------------
+    // Gestion de la room
+    //--------------------------------------------------------------------------
+
+    QString name() const;
+    void setName(const QString &name);
+    bool isHost() const;
+    void setHostUsername(const QString &username);
+    QString hostUsername() const;
+
+    //--------------------------------------------------------------------------
+    // Gestion du serveur et des connexions
+    //--------------------------------------------------------------------------
+
+    bool startServer();
+    void stopServer();
+    bool connectToRoom(const QString &address, int port, const QString &username);
+    void disconnect();
+    bool joinWithCode(const QString &inviteCode, const QString &username);
+    QString invitationCode() const;
     QString generateInvitationCode();
-    
-    /**
-     * @brief Obtient la liste des utilisateurs connectés
-     * @return Liste des noms d'utilisateurs
-     */
+    QString getLocalIpAddress() const;
     QStringList connectedUsers() const;
 
-    /**
-     * @brief Obtient le board principal
-     * @return Pointeur vers le board principal
-     */
-    Board* getBoard() const { return m_board; }
-    
-    /**
-     * @brief Indique si l'utilisateur local est l'hôte
-     * @return true si l'utilisateur est l'hôte
-     */
-    bool isHost() const { return m_isHost; }
+    //--------------------------------------------------------------------------
+    // Gestion des boards et SoundPads
+    //--------------------------------------------------------------------------
 
-    /**
-     * @brief Définit le nom d'utilisateur de l'hôte
-     * @param username Nom d'utilisateur
-     */
-    void setHostUsername(const QString &username) {
-        m_hostUsername = username;
-    }
-
-    /**
-     * @brief Renvoie le nom d'utilisateur de l'hôte de la room
-     * @return Le nom d'utilisateur de l'hôte
-     */
-    QString hostUsername() const { return m_hostUsername; }
-
-    /**
-     * @brief Obtient l'adresse IP locale
-     * @return Adresse IP locale
-     */
-    QString getLocalIpAddress() const;
-
-    /**
-     * @brief Installe un fichier localement
-     * @param filePath Chemin du fichier
-     */
+    Board* getBoard() const;
     void installFileLocally(const QString &filePath);
-
-    /**
-     * @brief Sauvegarde un média dans un SoundPad
-     * @param mediaPath Chemin du média
-     */
     void saveMediaToPad(const QString &mediaPath);
-
-public slots:
-    /**
-     * @brief Notifie les autres utilisateurs de l'ajout d'un SoundPad
-     * @param board Board contenant le SoundPad
-     * @param pad SoundPad ajouté
-     */
-    void notifySoundPadAdded(Board *board, SoundPad *pad);
+    QList<QByteArray> splitDataIntoChunks(const QByteArray &data, int chunkSize);
+    QByteArray reassembleData(const QJsonArray &chunks);
     
-    /**
-     * @brief Notifie les autres utilisateurs de la suppression d'un SoundPad
-     * @param board Board contenant le SoundPad
-     * @param pad SoundPad supprimé
-     */
+public slots:
+    void notifySoundPadAdded(Board *board, SoundPad *pad);
     void notifySoundPadRemoved(Board *board, SoundPad *pad);
 
 signals:
-    /**
-     * @brief Signal émis lorsqu'un utilisateur se connecte
-     * @param username Nom de l'utilisateur
-     */
     void userConnected(const QString &username);
-    
-    /**
-     * @brief Signal émis lorsqu'un utilisateur se déconnecte
-     * @param username Nom de l'utilisateur
-     */
     void userDisconnected(const QString &username);
-    
-    /**
-     * @brief Signal émis lorsqu'un SoundPad est ajouté
-     * @param board Tableau contenant le SoundPad
-     * @param pad SoundPad ajouté
-     */
     void soundpadAdded(Board *board, SoundPad *pad);
-    
-    /**
-     * @brief Signal émis lorsqu'un SoundPad est supprimé
-     * @param board Tableau contenant le SoundPad
-     * @param pad SoundPad supprimé
-     */
     void soundpadRemoved(Board *board, SoundPad *pad);
-    
-    /**
-     * @brief Signal émis lorsque le serveur démarre
-     * @param address Adresse IP du serveur
-     * @param port Port d'écoute du serveur
-     */
     void serverStartedSignal(const QString &address, int port);
-    
-    /**
-     * @brief Signal émis lorsque le serveur s'arrête
-     */
     void serverStopped();
-    
-    /**
-     * @brief Signal émis lorsque le nom de la room change
-     * @param name Nouveau nom
-     */
     void nameChanged(const QString &name);
-    
-    /**
-     * @brief Signal émis lorsque le fichier est installé
-     * @param path Chemin du fichier installé
-     */
     void fileInstalled(const QString &path);
 
 private slots:
-    /**
-     * @brief Gère une nouvelle connexion entrante
-     */
     void handleNewConnection();
-    
-    /**
-     * @brief Gère la réception de données
-     */
     void handleDataReceived();
-    
-    /**
-     * @brief Gère la déconnexion d'un client
-     */
     void handleClientDisconnected();
-    
+
 private:
-    QString m_name;                       // Nom de la room
-    QString m_invitationCode;             // Code d'invitation
-    QString m_hostUsername;               // Nom d'utilisateur de l'hôte
-    Board *m_board;                       // Board principal
-    QMap<QTcpSocket*, ConnectedUser> m_users; // Utilisateurs connectés
-    QTcpServer *m_server;               // Serveur TCP
-    QTcpSocket *m_clientSocket;         // Socket client
-    bool m_isHost;                      // Indique si l'utilisateur est l'hôte
-    int m_port;                         // Port d'écoute
-    
-    /**
-     * @brief Envoie un message à tous les clients
-     * @param type Type de message
-     * @param data Données à envoyer
-     */
+    //--------------------------------------------------------------------------
+    // Attributs privés
+    //--------------------------------------------------------------------------
+
+    QString m_name;
+    QString m_invitationCode;
+    QString m_hostUsername;
+    bool m_isHost;
+    QTcpServer *m_server;
+    QTcpSocket *m_clientSocket;
+    QMap<QTcpSocket*, ConnectedUser> m_users;
+    Board *m_board;
+    int m_port;                      // Port d'écoute du serveur
+
+    //--------------------------------------------------------------------------
+    // Méthodes privées - Communication
+    //--------------------------------------------------------------------------
+
     void broadcastMessage(const QString &type, const QJsonObject &data);
-    
-    /**
-     * @brief Envoie un message à un client spécifique
-     * @param socket Socket du client
-     * @param type Type de message
-     * @param data Données à envoyer
-     */
     void sendMessage(QTcpSocket *socket, const QString &type, const QJsonObject &data);
-
-    QList<QByteArray> splitDataIntoChunks(const QByteArray &data, int chunkSize);
-    
-    QByteArray reassembleData(const QJsonArray &chunks);
-
-
-    /**
-     * @brief Traite un message reçu
-     * @param socket Socket qui a envoyé le message
-     * @param type Type de message
-     * @param data Données du message
-     */
     void processMessage(QTcpSocket *socket, const QString &type, const QJsonObject &data);
-    
-    /**
-     * @brief Vérifie si les boards sont correctement chargés et envoie une confirmation à l'hôte
-     * @param boardIds Liste des identifiants de boards à vérifier
-     * @param socket Socket à utiliser pour envoyer la confirmation
-     */
+
+    //--------------------------------------------------------------------------
+    // Méthodes privées - Gestion de la logique du message
+    //--------------------------------------------------------------------------
+
+    void handleSoundpadRemoved(const QJsonObject &data);
+    void handleUserJoin(QTcpSocket *socket, const QJsonObject &data);
+    void sendUserList(QTcpSocket *socket);
+    void sendBoardDetails(QTcpSocket *socket);
+    void sendSoundpads(QTcpSocket *socket);
+    void handleSoundpadAdded(QTcpSocket *socket, const QJsonObject &data);
+    SoundPad* createSoundPadFromData(const QJsonObject &data, Board *targetBoard);
+    void broadcastNewPadToOthers(QTcpSocket *socket, const QJsonObject &data);
+    Board* findBoard(const QString &boardId);
+    void handleBoardAdded(const QJsonObject &data);
     void confirmBoardsLoaded(const QJsonArray &boardIds, QTcpSocket *socket);
 };
 

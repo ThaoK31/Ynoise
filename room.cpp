@@ -21,23 +21,37 @@ Room::Room(const QString &name, bool isHost, QObject *parent)
     , m_server(nullptr)
     , m_clientSocket(nullptr)
     , m_isHost(isHost)
-    , m_port(0)
+    , m_board(nullptr)
+    , m_port(45678 + QRandomGenerator::global()->bounded(1000))
 {
     qDebug() << "Création d'une nouvelle Room:" << name << "(Hôte:" << (isHost ? "Oui" : "Non") << ")";
-    
-    // Définir un port par défaut
-    m_port = 45678 + QRandomGenerator::global()->bounded(1000);
     qDebug() << "Port par défaut assigné:" << m_port;
     
-    // Générer un code d'invitation par défaut pour faciliter le débogage
-    generateInvitationCode();
-    
-    // Créer un board par défaut
-    m_board = new Board("Board principal");
-    
-    // Définir un identifiant fixe pour le board (toujours "1")
+    // Création du board principal
+    m_board = new Board("Tableau principal");
     m_board->setObjectName("1");
-    qDebug() << "ID fixe attribué au board principal: 1";
+    
+    // Connexion des signaux du board avec adaptateurs lambda pour gérer les arguments différents
+    connect(m_board, &Board::soundPadAdded, this, [this](SoundPad* pad) {
+        notifySoundPadAdded(m_board, pad);
+    });
+    
+    connect(m_board, &Board::soundPadRemoved, this, [this](SoundPad* pad) {
+        notifySoundPadRemoved(m_board, pad);
+    });
+    
+    if (isHost) {
+        // Création du serveur
+        m_server = new QTcpServer(this);
+        connect(m_server, &QTcpServer::newConnection, this, &Room::handleNewConnection);
+        
+        // Générer un code d'invitation initial
+        generateInvitationCode();
+        
+        qDebug() << "Serveur créé, en attente de démarrage";
+    } else {
+        qDebug() << "Room créée en mode client, en attente de connexion";
+    }
 }
 
 Room::~Room()
@@ -84,11 +98,9 @@ QString Room::generateInvitationCode()
 
 bool Room::joinWithCode(const QString &inviteCode, const QString &username)
 {
-    // Empêcher l'hôte d'utiliser cette méthode
     if (m_isHost || inviteCode.isEmpty() || username.isEmpty())
         return false;
     
-    // Format du code d'invitation: "adresse_ip:port"
     QStringList parts = inviteCode.split(":");
     
     if (parts.size() != 2) {
@@ -114,72 +126,53 @@ bool Room::startServer()
 {
     qDebug() << "Tentative de démarrage du serveur...";
     
-    // Vérifier si l'utilisateur est configuré comme hôte
     if (!m_isHost) {
         qDebug() << "ERREUR: Tentative de démarrer un serveur sur un client";
         return false;
     }
     
-    // Fermer le serveur existant si nécessaire
-    if (m_server) {
-        qDebug() << "Serveur existant détecté, fermeture avant redémarrage";
+    if (m_server) { // Test si le serveur tourne deja
+        qDebug() << "ferme le serveur avant de le relancer";
         m_server->close();
         m_server->deleteLater();
         m_server = nullptr;
     }
     
-    // Créer le serveur
-    qDebug() << "Création d'un nouveau serveur";
+    qDebug() << "créer un serveur";
     m_server = new QTcpServer(this);
     
-    // Connecter le signal de nouvelle connexion
     connect(m_server, &QTcpServer::newConnection, this, &Room::handleNewConnection);
     
-    // Tenter le démarrage sur différentes adresses si nécessaire
     bool serverStartSuccess = false;
     
-    // D'abord essayer Any (toutes les interfaces)
-    qDebug() << "Tentative de démarrage sur QHostAddress::Any";
     serverStartSuccess = m_server->listen(QHostAddress::Any, m_port);
     
-    // Si ça ne fonctionne pas, essayer sur localhost
     if (!serverStartSuccess) {
-        qDebug() << "Échec sur Any, tentative sur localhost";
-        serverStartSuccess = m_server->listen(QHostAddress::LocalHost, m_port);
-    }
-    
-    // Vérifier si le serveur a démarré
-    if (!serverStartSuccess) {
-        qDebug() << "ERREUR critique lors du démarrage du serveur:" << m_server->errorString();
+        qDebug() << "ERREUR fatal erreur dans le lancecment du serveur :" << m_server->errorString();
         m_server->deleteLater();
         m_server = nullptr;
         return false;
     }
     
-    // Récupérer le port sur lequel le serveur écoute (au cas où le port demandé n'était pas disponible)
     m_port = m_server->serverPort();
     qDebug() << "Serveur démarré avec succès sur le port" << m_port;
     
-    // Obtenir l'adresse IP locale pour générer le code d'invitation
     QString localIp = getLocalIpAddress();
     if (localIp.isEmpty()) {
         qDebug() << "Avertissement: Impossible de déterminer l'adresse IP locale, utilisation de localhost";
         localIp = QHostAddress(QHostAddress::LocalHost).toString();
     }
     
-    // Générer le code d'invitation (format: adresse_ip:port)
     m_invitationCode = QString("%1:%2").arg(localIp).arg(m_port);
-    qDebug() << "Code d'invitation généré:" << m_invitationCode;
+    qDebug() << "Code d'invitation genere :" << m_invitationCode;
     
-    // Si le nom d'hôte n'a pas été défini, utiliser un nom par défaut
     if (m_hostUsername.isEmpty()) {
         m_hostUsername = "Hôte";
-        qDebug() << "ATTENTION: Nom d'hôte non défini, utilisation du nom par défaut:" << m_hostUsername;
+        qDebug() << "ATTENTION: utilisation du nom par defaut:" << m_hostUsername;
     } else {
-        qDebug() << "Nom d'hôte défini:" << m_hostUsername;
+        qDebug() << "Nom d'hote defini avec " << m_hostUsername;
     }
     
-    // Émettre le signal de démarrage du serveur
     emit serverStartedSignal(localIp, m_port);
     
     return true;
@@ -196,7 +189,6 @@ bool Room::connectToRoom(const QString &address, int port, const QString &userna
         return false;
     }
     
-    // Créer un nouveau socket client si nécessaire
     if (!m_clientSocket) {
         m_clientSocket = new QTcpSocket(this);
         
@@ -211,7 +203,6 @@ bool Room::connectToRoom(const QString &address, int port, const QString &userna
         });
     }
     
-    // Se connecter au serveur si le socket n'est pas déjà connecté
     if (m_clientSocket->state() == QTcpSocket::UnconnectedState) {
         qDebug() << "Tentative de connexion à" << address << ":" << port;
         
@@ -220,7 +211,6 @@ bool Room::connectToRoom(const QString &address, int port, const QString &userna
         if (m_clientSocket->waitForConnected(3000)) {
             qDebug() << "Connexion établie avec succès, envoi des informations utilisateur";
             
-            // Envoyer les informations utilisateur
             QJsonObject data;
             data["username"] = username;
             sendMessage(m_clientSocket, "join", data);
@@ -240,7 +230,6 @@ void Room::disconnect()
 {
     if (m_clientSocket) {
         if (m_clientSocket->state() == QTcpSocket::ConnectedState) {
-            // Informer le serveur de la déconnexion
             QJsonObject data;
             data["reason"] = "user_disconnect";
             sendMessage(m_clientSocket, "disconnect", data);
@@ -259,7 +248,6 @@ void Room::handleNewConnection()
             QObject::connect(socket, &QTcpSocket::readyRead, this, &Room::handleDataReceived);
             QObject::connect(socket, &QTcpSocket::disconnected, this, &Room::handleClientDisconnected);
             
-            // L'utilisateur sera correctement identifié quand il enverra ses infos
             m_users[socket] = ConnectedUser();
         }
     }
@@ -282,52 +270,6 @@ void Room::handleDataReceived()
     QJsonObject messageData = message["data"].toObject();
     
     processMessage(socket, messageType, messageData);
-}
-
-
-QList<QByteArray> Room::splitDataIntoChunks(const QByteArray &data, int chunkSize) {
-    QList<QByteArray> chunks;
-    for (int i = 0; i < data.size(); i += chunkSize) {
-        chunks.append(data.mid(i, chunkSize));
-    }
-    return chunks;
-}
-
-// Reconstitue les données originales à partir d'un QJsonArray de chunks (utile côté réception)
-QByteArray reassembleData(const QJsonArray &chunks) {
-    QByteArray fullData;
-    for (int i = 0; i < chunks.size(); ++i) {
-        QString chunkStr = chunks.at(i).toString();
-        fullData.append(QByteArray::fromBase64(chunkStr.toUtf8()));
-    }
-    return fullData;
-}
-
-
-void Room::handleClientDisconnected()
-{
-    QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
-    if (!socket)
-        return;
-    
-    if (m_users.contains(socket)) {
-        QString username = m_users[socket].username;
-        
-        if (!username.isEmpty()) {
-            emit userDisconnected(username);
-            
-            // Informer les autres utilisateurs
-            if (m_isHost) {
-                QJsonObject data;
-                data["username"] = username;
-                broadcastMessage("user_disconnect", data);
-            }
-        }
-        
-        m_users.remove(socket);
-    }
-    
-    socket->deleteLater();
 }
 
 void Room::broadcastMessage(const QString &type, const QJsonObject &data)
@@ -361,409 +303,310 @@ void Room::sendMessage(QTcpSocket *socket, const QString &type, const QJsonObjec
     QJsonDocument doc(message);
     QByteArray byteArray = doc.toJson(QJsonDocument::Compact);
     
-    qDebug() << "Envoi du message" << type << "au client" << socket->peerAddress().toString() << "et comme message" << QJsonDocument(data).toJson();
-
+    qDebug() << "Envoi du message" << type << "au client" << socket->peerAddress().toString();
     socket->write(byteArray);
+}
+
+QList<QByteArray> Room::splitDataIntoChunks(const QByteArray &data, int chunkSize) {
+    QList<QByteArray> chunks;
+    for (int i = 0; i < data.size(); i += chunkSize) {
+        chunks.append(data.mid(i, chunkSize));
+    }
+    return chunks;
+}
+
+// Reconstitue les données originales à partir d'un QJsonArray de chunks (utile côté réception)
+QByteArray reassembleData(const QJsonArray &chunks) {
+    QByteArray fullData;
+    for (int i = 0; i < chunks.size(); ++i) {
+        QString chunkStr = chunks.at(i).toString();
+        fullData.append(QByteArray::fromBase64(chunkStr.toUtf8()));
+    }
+    return fullData;
+}
+
+void Room::handleClientDisconnected()
+{
+    QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
+    if (!socket)
+        return;
+    
+    if (m_users.contains(socket)) {
+        QString username = m_users[socket].username;
+        
+        if (!username.isEmpty()) {
+            emit userDisconnected(username);
+            
+            // Informer les autres utilisateurs
+            if (m_isHost) {
+                QJsonObject data;
+                data["username"] = username;
+                broadcastMessage("user_disconnect", data);
+            }
+        }
+        
+        m_users.remove(socket);
+    }
+    
+    socket->deleteLater();
+}
+
+void Room::handleSoundpadRemoved(const QJsonObject &data)
+{
+    QString boardId = data["board_id"].toString();
+    QString padId = data["pad_id"].toString();
+
+    qDebug() << "Message 'soundpad_removed' reçu pour le board" << boardId << "et le pad" << padId;
+
+    Board *targetBoard = findBoard(boardId);
+    if (targetBoard) {
+        SoundPad *padToRemove = targetBoard->getSoundPadById(padId);
+        if (padToRemove) {
+            targetBoard->removeSoundPad(padToRemove);
+            qDebug() << "SoundPad" << padId << "supprimé du board" << boardId;
+        } else {
+            qDebug() << "SoundPad" << padId << "non trouvé dans le board" << boardId;
+        }
+    } else {
+        qDebug() << "Impossible de trouver le board" << boardId << "pour supprimer le SoundPad";
+    }
+}
+
+void Room::handleUserJoin(QTcpSocket *socket, const QJsonObject &data)
+{
+    QString username = data["username"].toString();
+    
+    if (!username.isEmpty()) {
+        ConnectedUser user;
+        user.username = username;
+        m_users[socket] = user;
+        
+        QJsonObject joinData;
+        joinData["username"] = username;
+        
+        // Notify other clients
+        for (auto it = m_users.begin(); it != m_users.end(); ++it) {
+            if (it.key() != socket) {
+                sendMessage(it.key(), "user_joined", joinData);
+            }
+        }
+        
+        if (m_isHost) {
+            sendUserList(socket);
+            sendBoardDetails(socket);
+        }
+        
+        emit userConnected(username);
+    }
+}
+
+void Room::sendUserList(QTcpSocket *socket)
+{
+    qDebug() << "Envoi de la liste des utilisateurs au nouveau client, incluant l'hôte:" << m_hostUsername;
+
+    QJsonArray usersArray;
+    
+    if (!m_hostUsername.isEmpty()) {
+        usersArray.append(m_hostUsername);
+        qDebug() << "Ajout de l'hôte à la liste:" << m_hostUsername;
+    } else {
+        qDebug() << "ATTENTION: Le nom de l'hôte est vide!";
+    }
+    
+    for (auto it = m_users.begin(); it != m_users.end(); ++it) {
+        if (it.key() != socket && !it.value().username.isEmpty()) {
+            usersArray.append(it.value().username);
+            qDebug() << "Ajout d'un utilisateur à la liste:" << it.value().username;
+        }
+    }
+    
+    QJsonObject usersData;
+    usersData["users"] = usersArray;
+    sendMessage(socket, "users_list", usersData);
+}
+
+void Room::sendBoardDetails(QTcpSocket *socket)
+{
+    if (m_board) {
+        if (m_board->objectName().isEmpty()) {
+            m_board->setObjectName("1");
+            qDebug() << "ID fixe attribué au board principal: 1";
+        }
+        
+        QJsonObject boardData;
+        boardData["board_id"] = m_board->objectName();
+        boardData["board_name"] = m_board->getTitle();
+        
+        qDebug() << "Envoi du board principal" << m_board->objectName() << "au client";
+        sendMessage(socket, "board_added", boardData);
+        
+        QTimer::singleShot(300, this, [this, socket] {
+            sendSoundpads(socket);
+        });
+    }
+}
+
+void Room::sendSoundpads(QTcpSocket *socket)
+{
+    qDebug() << "Envoi des" << m_board->getSoundPads().size() << "pads du board principal";
+    
+    for (SoundPad* pad : m_board->getSoundPads()) {
+        if (pad->objectName().isEmpty()) {
+            QString padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
+            pad->setObjectName(padId);
+            qDebug() << "ID généré pour un pad sans identifiant:" << padId;
+        }
+        
+        QJsonObject padData;
+        padData["board_id"] = m_board->objectName();
+        padData["pad_id"] = pad->objectName();
+        padData["title"] = pad->getTitle();
+        padData["file_path"] = pad->getFilePath();
+        padData["image_path"] = pad->getImagePath();
+        padData["can_duplicate_play"] = pad->getCanDuplicatePlay();
+        padData["shortcut"] = pad->getShortcut().toString();
+        
+        qDebug() << "Envoi du pad" << pad->objectName() << "au client";
+        sendMessage(socket, "soundpad_added", padData);
+        
+        QThread::msleep(50);
+    }
+}
+
+void Room::handleSoundpadAdded(QTcpSocket *socket, const QJsonObject &data)
+{
+    // Cette fonction traite l'ajout d'un SoundPad
+    // La logique de traitement de SoundPad a été extraite en fonctions dédiées.
+    QString boardId = data["board_id"].toString();
+    QString padId = data["pad_id"].toString();
+    
+    qDebug() << "Message 'soundpad_added' reçu pour le board" << boardId << "et le pad" << padId;
+
+    Board *targetBoard = findBoard(boardId);
+    if (targetBoard) {
+        SoundPad *newPad = createSoundPadFromData(data, targetBoard);
+        
+        if (newPad) {
+            bool success = targetBoard->addSoundPadFromRemote(newPad);
+            if (!success) {
+                delete newPad;
+                qDebug() << "Erreur lors de l'ajout du SoundPad";
+            } else {
+                broadcastNewPadToOthers(socket, data);
+            }
+        }
+    } else {
+        qDebug() << "Impossible de trouver le board" << boardId << "pour ajouter le SoundPad";
+    }
+}
+
+SoundPad* Room::createSoundPadFromData(const QJsonObject &data, Board *targetBoard)
+{
+    QString padId = data["pad_id"].toString();
+    QString title = data["title"].toString();
+    bool canDuplicatePlay = data["can_duplicate_play"].toBool();
+    QString shortcutString = data["shortcut"].toString();
+    QKeySequence shortcut = QKeySequence(shortcutString);
+
+    SoundPad *newPad = new SoundPad(title, "", "", canDuplicatePlay, shortcut, targetBoard);
+    newPad->setObjectName(padId);
+    
+    return newPad;
+}
+
+void Room::broadcastNewPadToOthers(QTcpSocket *socket, const QJsonObject &data)
+{
+    if (m_isHost) {
+        for (auto it = m_users.begin(); it != m_users.end(); ++it) {
+            if (it.key() != socket) {
+                sendMessage(it.key(), "soundpad_added", data);
+            }
+        }
+    }
+}
+
+Board* Room::findBoard(const QString &boardId)
+{
+    if (m_board && m_board->objectName() == boardId) {
+        return m_board;
+    }
+    return nullptr;
+}
+
+void Room::handleBoardAdded(const QJsonObject &data)
+{
+    QString boardId = data["board_id"].toString();
+    QString boardName = data["board_name"].toString();
+    
+    qDebug() << "Message 'board_added' reçu avec ID:" << boardId << "et nom:" << boardName;
+    
+    if (!m_isHost && m_board) {
+        m_board->setObjectName("1");
+        if (m_board->getTitle() != boardName) {
+            m_board->setTitle(boardName);
+        }
+        
+        qDebug() << "Board principal défini avec l'ID fixe: 1";
+    }
 }
 
 void Room::processMessage(QTcpSocket *socket, const QString &type, const QJsonObject &data)
 {
     if (type == "soundpad_removed") {
-        // Récupérer les informations du SoundPad supprimé
-        QString boardId = data["board_id"].toString();
-        QString padId = data["pad_id"].toString();
-
-        qDebug() << "Message 'soundpad_removed' reçu pour le board" << boardId << "et le pad" << padId;
-
-        // Vérifier que nous avons un board correspondant
-        Board *targetBoard = nullptr;
-        if (m_board && m_board->objectName() == boardId) {
-            targetBoard = m_board;
-        }
-
-        if (targetBoard) {
-            // Supprimer le SoundPad du board
-            SoundPad *padToRemove = targetBoard->getSoundPadById(padId);
-            if (padToRemove) {
-                targetBoard->removeSoundPad(padToRemove);
-                qDebug() << "SoundPad" << padId << "supprimé du board" << boardId;
-            } else {
-                qDebug() << "SoundPad" << padId << "non trouvé dans le board" << boardId;
-            }
-        } else {
-            qDebug() << "Impossible de trouver le board" << boardId << "pour supprimer le SoundPad";
-        }
+        handleSoundpadRemoved(data);
     }
-    if (type == "join") {
-        // Un utilisateur vient de rejoindre
-        QString username = data["username"].toString();
-        
-        if (!username.isEmpty()) {
-            // Enregistrer l'utilisateur
-            ConnectedUser user;
-            user.username = username;
-            m_users[socket] = user;
-            
-            // Notifier les autres utilisateurs
-            QJsonObject joinData;
-            joinData["username"] = username;
-            
-            // Envoyer aux autres clients sauf celui qui vient de se connecter
-            for (auto it = m_users.begin(); it != m_users.end(); ++it) {
-                if (it.key() != socket) {
-                    sendMessage(it.key(), "user_joined", joinData);
-                }
-            }
-            
-            // Si nous sommes l'hôte, envoyer notre nom d'utilisateur au client qui vient de se connecter
-            if (m_isHost) {
-                qDebug() << "Envoi de la liste des utilisateurs au nouveau client, incluant l'hôte:" << m_hostUsername;
-                
-                // Envoyer la liste de tous les utilisateurs déjà connectés (y compris l'hôte)
-                QJsonArray usersArray;
-                
-                // Ajouter l'hôte (nous-mêmes) à la liste
-                if (!m_hostUsername.isEmpty()) {
-                    usersArray.append(m_hostUsername);
-                    qDebug() << "Ajout de l'hôte à la liste:" << m_hostUsername;
-                } else {
-                    qDebug() << "ATTENTION: Le nom de l'hôte est vide!";
-                }
-                
-                // Ajouter tous les autres utilisateurs connectés
-                for (auto it = m_users.begin(); it != m_users.end(); ++it) {
-                    if (it.key() != socket && !it.value().username.isEmpty()) {
-                        usersArray.append(it.value().username);
-                        qDebug() << "Ajout d'un utilisateur à la liste:" << it.value().username;
-                    }
-                }
-                
-                // Envoyer la liste complète au nouveau client
-                QJsonObject usersData;
-                usersData["users"] = usersArray;
-                sendMessage(socket, "users_list", usersData);
-                
-                // Si nous avons un board, l'envoyer au client
-                if (m_board) {
-                    // Utiliser l'ID fixe (toujours "1") pour le board principal
-                    if (m_board->objectName().isEmpty()) {
-                        m_board->setObjectName("1");
-                        qDebug() << "ID fixe attribué au board principal: 1";
-                    }
-                    
-                    // Envoyer les informations du board
-                    QJsonObject boardData;
-                    boardData["board_id"] = m_board->objectName();
-                    boardData["board_name"] = m_board->getTitle();
-                    
-                    qDebug() << "Envoi du board principal" << m_board->objectName() << "au client";
-                    sendMessage(socket, "board_added", boardData);
-                    
-                    // Envoyer tous les SoundPads du board après un court délai
-                    QTimer::singleShot(300, this, [this, socket] {
-                        // Envoyer les SoundPads du board principal
-                        qDebug() << "Envoi des" << m_board->getSoundPads().size() << "pads du board principal";
-                        
-                        for (SoundPad* pad : m_board->getSoundPads()) {
-                            // Générer un ID pour le pad s'il n'en a pas
-                            if (pad->objectName().isEmpty()) {
-                                QString padId = QString("pad_%1").arg(QDateTime::currentMSecsSinceEpoch());
-                                pad->setObjectName(padId);
-                                qDebug() << "ID généré pour un pad sans identifiant:" << padId;
-                            }
-                            
-                            QJsonObject padData;
-                            padData["board_id"] = m_board->objectName();
-                            padData["pad_id"] = pad->objectName();
-                            padData["title"] = pad->getTitle();
-                            padData["file_path"] = pad->getFilePath();
-                            padData["image_path"] = pad->getImagePath();
-                            padData["can_duplicate_play"] = pad->getCanDuplicatePlay();
-                            padData["shortcut"] = pad->getShortcut().toString();
-                            
-                            qDebug() << "Envoi du pad" << pad->objectName() << "au client";
-                            sendMessage(socket, "soundpad_added", padData);
-                            
-                            // Petit délai pour éviter de surcharger le client
-                            QThread::msleep(50);
-                        }
-                    });
-                }
-            }
-            
-            // Émettre le signal pour informer l'interface
-            emit userConnected(username);
-        }
+    else if (type == "join") {
+        handleUserJoin(socket, data);
     }
     else if (type == "soundpad_added") {
-        QString audioDataStr = data["audio_data"].toString();
-        qDebug() << "  - Vérification encodage audio: " << (audioDataStr.isEmpty() ? "VIDE!" : "OK")
-                 << " (premiers 20 caractères: " << (audioDataStr.length() > 20 ? audioDataStr.left(20) + "..." : audioDataStr) << ")";
-
-
-        // Récupérer les informations du SoundPad
-        QString boardId = data["board_id"].toString();
-        QString padId = data["pad_id"].toString();
-        QString title = data["title"].toString();
-        QString filePath = data["file_path"].toString();
-        QString imagePath = data["image_path"].toString();
-        bool canDuplicatePlay = data["can_duplicate_play"].toBool();
-        QString shortcutString = data["shortcut"].toString();
-        QKeySequence shortcut = QKeySequence(shortcutString);
-        
-        qDebug() << "Réception d'un SoundPad:";
-        qDebug() << "  - ID Board:" << boardId;
-        qDebug() << "  - ID Pad:" << padId;
-        qDebug() << "  - Titre:" << title;
-        qDebug() << "  - Chemin audio:" << filePath;
-        qDebug() << "  - Chemin image:" << imagePath;
-        qDebug() << "  - Lecture multiple:" << (canDuplicatePlay ? "Oui" : "Non");
-        qDebug() << "  - Raccourci:" << shortcutString;
-        
-        // Récupérer les données binaires encodées en base64
-        QByteArray audioData;
-        QByteArray imageData;
-
-
-
-        qDebug() << "Vérification des données binaires reçues:";
-        
-        bool audioDataReceived = false;
-        if (data.contains("audio_data")) {
-            QString encodedAudio = data["audio_data"].toString();
-            qDebug() << "  - Données audio encodées reçues:" << encodedAudio.length() << "caractères";
-            
-            if (!encodedAudio.isEmpty()) {
-                audioData = QByteArray::fromBase64(encodedAudio.toLatin1());
-                qDebug() << "  - Données audio décodées:" << audioData.size() << "octets";
-                
-                if (audioData.isEmpty()) {
-                    qDebug() << "  - ERREUR: Échec du décodage des données audio";
-                } else {
-                    audioDataReceived = true;
-                    qDebug() << "  - Décodage des données audio réussi";
-                }
-            }
-        } else {
-            qDebug() << "  - Pas de données audio reçues";
-        }
-        
-        bool imageDataReceived = false;
-        if (data.contains("image_data")) {
-            QString encodedImage = data["image_data"].toString();
-            qDebug() << "  - Données image encodées reçues:" << encodedImage.length() << "caractères";
-            
-            if (!encodedImage.isEmpty()) {
-                imageData = QByteArray::fromBase64(encodedImage.toLatin1());
-                qDebug() << "  - Données image décodées:" << imageData.size() << "octets";
-                
-                if (imageData.isEmpty()) {
-                    qDebug() << "  - ERREUR: Échec du décodage des données image";
-                } else {
-                    imageDataReceived = true;
-                    qDebug() << "  - Décodage des données image réussi";
-                }
-            }
-        } else {
-            qDebug() << "  - Pas de données image reçues";
-        }
-        
-        qDebug() << "Message 'soundpad_added' reçu pour le board" << boardId << "et le pad" << padId;
-        
-        // Vérifier que nous avons un board correspondant
-        Board *targetBoard = nullptr;
-        if (m_board && m_board->objectName() == boardId) {
-            targetBoard = m_board;
-        } else {
-            qDebug() << "[ERREUR] Board cible non trouvé:" << boardId;
-        }
-        
-        if (targetBoard) {
-            qDebug() << "[INFO] Création d'un nouveau SoundPad avec ID:" << padId;
-            
-            // Créer le SoundPad sans charger immédiatement les médias
-            SoundPad *newPad = new SoundPad(title, "", "", canDuplicatePlay, shortcut, targetBoard);
-            newPad->setObjectName(padId);
-            
-            // Définir explicitement le titre
-            if (!title.isEmpty()) {
-                newPad->blockSignals(true);
-                newPad->setTitle(title);
-                newPad->blockSignals(false);
-                qDebug() << "[INFO] Titre défini:" << title;
-            }
-            
-            // Flag pour suivre si les médias ont été traités
-            bool audioProcessed = false;
-            bool imageProcessed = false;
-            
-            // Priorité aux données reçues en base64
-            if (audioDataReceived) {
-                qDebug() << "[INFO] Définition des données audio depuis les données reçues";
-                newPad->setAudioData(audioData);
-                
-                // Vérifier si les données ont été correctement définies
-                if (!newPad->getAudioData().isEmpty()) {
-                    audioProcessed = true;
-                    qDebug() << "[INFO] Données audio définies sur le nouveau SoundPad:" << audioData.size() << "octets";
-                    
-                    // Si le fichier n'existe pas localement, le sauvegarder
-                    if (!filePath.isEmpty() && !QFile::exists(filePath)) {
-                        // Créer un chemin temporaire pour sauvegarder le fichier audio
-                        QFileInfo fileInfo(filePath);
-                        QString tempDir = QDir::tempPath() + "/Ynoise/";
-                        QDir().mkpath(tempDir);
-                        QString tempFilePath = tempDir + fileInfo.fileName();
-                        
-                        qDebug() << "[INFO] Sauvegarde temporaire du fichier audio reçu vers:" << tempFilePath;
-                        
-                        if (newPad->saveAudioToFile(tempFilePath)) {
-                            qDebug() << "[INFO] Fichier audio temporaire sauvegardé avec succès";
-                            
-                            // Installer le fichier en conservant la structure de répertoire
-                            installFileLocally(tempFilePath);
-                            
-                            // Utiliser le nouveau chemin installé
-                            QString basePath = QDir::homePath() + "/Documents/";
-                            QString relativePath = fileInfo.absoluteFilePath().remove(basePath);
-                            QString installedPath = QDir::homePath() + "/InstalledFiles/" + relativePath;
-                            
-                            // Mettre à jour le chemin du fichier dans le pad SANS recharger le fichier
-                            newPad->blockSignals(true);
-                            newPad->setFilePath(installedPath);
-                            newPad->blockSignals(false);
-                            qDebug() << "[INFO] Chemin audio mis à jour vers:" << installedPath;
-                        } else {
-                            qDebug() << "[ERREUR] Échec de la sauvegarde du fichier audio temporaire";
-                        }
-                    } else if (QFile::exists(filePath)) {
-                        // Si le fichier existe, on met simplement à jour le chemin sans recharger
-                        newPad->blockSignals(true);
-                        newPad->setFilePath(filePath);
-                        newPad->blockSignals(false);
-                        qDebug() << "[INFO] Chemin audio défini (sans chargement) vers le fichier existant:" << filePath;
-                    }
-                } else {
-                    qDebug() << "[ERREUR] Les données audio n'ont pas été définies correctement";
-                }
-            } else if (!filePath.isEmpty() && QFile::exists(filePath)) {
-                // Essayer de charger depuis le fichier local si disponible ET si pas déjà traité
-                if (!audioProcessed) {
-                    qDebug() << "[INFO] Définition du chemin audio avec fichier local:" << filePath;
-                    newPad->setFilePath(filePath);
-                    audioProcessed = true;
-                }
-            }
-            
-            // Traitement similaire pour l'image
-            if (imageDataReceived) {
-                qDebug() << "[INFO] Définition des données image depuis les données reçues";
-                newPad->setImageData(imageData);
-                
-                if (!newPad->getImageData().isEmpty()) {
-                    imageProcessed = true;
-                    qDebug() << "[INFO] Données image définies sur le nouveau SoundPad:" << imageData.size() << "octets";
-                    
-                    // Si le fichier n'existe pas localement, le sauvegarder
-                    if (!imagePath.isEmpty() && !QFile::exists(imagePath)) {
-                        // Créer un chemin temporaire pour sauvegarder le fichier image
-                        QFileInfo fileInfo(imagePath);
-                        QString tempDir = QDir::tempPath() + "/Ynoise/";
-                        QDir().mkpath(tempDir);
-                        QString tempFilePath = tempDir + fileInfo.fileName();
-                        
-                        qDebug() << "[INFO] Sauvegarde temporaire du fichier image reçu vers:" << tempFilePath;
-                        
-                        if (newPad->saveImageToFile(tempFilePath)) {
-                            qDebug() << "[INFO] Fichier image temporaire sauvegardé avec succès";
-                            
-                            // Installer le fichier en conservant la structure de répertoire
-                            installFileLocally(tempFilePath);
-                            
-                            // Utiliser le nouveau chemin installé
-                            QString basePath = QDir::homePath() + "/Documents/";
-                            QString relativePath = fileInfo.absoluteFilePath().remove(basePath);
-                            QString installedPath = QDir::homePath() + "/InstalledFiles/" + relativePath;
-                            
-                            // Mettre à jour le chemin du fichier dans le pad SANS recharger le fichier
-                            newPad->blockSignals(true);
-                            newPad->setImagePath(installedPath);
-                            newPad->blockSignals(false);
-                            qDebug() << "[INFO] Chemin image mis à jour vers:" << installedPath;
-                        } else {
-                            qDebug() << "[ERREUR] Échec de la sauvegarde du fichier image temporaire";
-                        }
-                    } else if (QFile::exists(imagePath)) {
-                        // Si le fichier existe, on met simplement à jour le chemin sans recharger
-                        newPad->blockSignals(true);
-                        newPad->setImagePath(imagePath);
-                        newPad->blockSignals(false);
-                        qDebug() << "[INFO] Chemin image défini (sans chargement) vers le fichier existant:" << imagePath;
-                    }
-                } else {
-                    qDebug() << "[ERREUR] Les données image n'ont pas été définies correctement";
-                }
-            } else if (!imagePath.isEmpty() && QFile::exists(imagePath)) {
-                // Essayer de charger depuis le fichier local si disponible ET si pas déjà traité
-                if (!imageProcessed) {
-                    qDebug() << "[INFO] Définition du chemin image avec fichier local:" << imagePath;
-                    newPad->setImagePath(imagePath);
-                    imageProcessed = true;
-                }
-            }
-            
-            // Vérifier si les données ont été chargées correctement
-            if (!audioProcessed && !filePath.isEmpty()) {
-                qDebug() << "[AVERTISSEMENT] Impossible de charger les données audio pour le pad" << padId;
-            }
-            
-            if (!imageProcessed && !imagePath.isEmpty()) {
-                qDebug() << "[AVERTISSEMENT] Impossible de charger les données image pour le pad" << padId;
-            }
-            
-            qDebug() << "Tentative d'ajout d'un nouveau SoundPad:" << padId;
-            
-            // Ajouter le pad au board et vérifier le résultat
-            bool ajoutReussi = targetBoard->addSoundPadFromRemote(newPad);
-            
-            if (!ajoutReussi) {
-                // Si l'ajout a échoué (pad en double), supprimer le pad créé
-                delete newPad;
-                qDebug() << "Suppression du pad en double, l'ajout a échoué";
-                return;
-            }
-            
-            // Si nous sommes l'hôte, retransmettre aux autres clients seulement si l'ajout a réussi
-            if (m_isHost && socket) {
-                qDebug() << "Retransmission du SoundPad aux autres clients";
-                for (auto it = m_users.begin(); it != m_users.end(); ++it) {
-                    if (it.key() != socket) {
-                        sendMessage(it.key(), "soundpad_added", data);
-                    }
-                }
-            }
-        } else {
-            qDebug() << "Impossible de trouver le board" << boardId << "pour ajouter le SoundPad";
-        }
+        handleSoundpadAdded(socket, data);
     }
     else if (type == "board_added") {
-        // Récupérer les informations du board
-        QString boardId = data["board_id"].toString();
-        QString boardName = data["board_name"].toString();
+        handleBoardAdded(data);
+    }
+    else if (type == "boards_loaded_confirm") {
+        confirmBoardsLoaded(data["board_ids"].toArray(), socket);
+    }
+}
+
+void Room::confirmBoardsLoaded(const QJsonArray &boardIds, QTcpSocket *socket)
+{
+    if (!socket || socket->state() != QTcpSocket::ConnectedState) {
+        qDebug() << "Impossible d'envoyer la confirmation des boards : socket non valide";
+        return;
+    }
+    
+    bool allBoardsFound = true;
+    QJsonArray missingBoards;
+    
+    // Vérifier chaque board demandé
+    for (int i = 0; i < boardIds.size(); ++i) {
+        QString boardId = boardIds[i].toString();
+        bool boardFound = false;
         
-        qDebug() << "Message 'board_added' reçu avec ID:" << boardId << "et nom:" << boardName;
+        // Vérifier le board principal
+        if (m_board && m_board->objectName() == boardId) {
+            boardFound = true;
+        }
         
-        // Si nous ne sommes pas l'hôte et que nous avons un board principal
-        if (!m_isHost && m_board) {
-            // Toujours utiliser l'ID fixe "1" pour le board
-            m_board->setObjectName("1");
-            if (m_board->getTitle() != boardName) {
-                m_board->setTitle(boardName);
-            }
-            
-            qDebug() << "Board principal défini avec l'ID fixe: 1";
+        if (!boardFound) {
+            allBoardsFound = false;
+            missingBoards.append(boardId);
         }
     }
+    
+    // Envoyer la confirmation à l'hôte
+    QJsonObject confirmData;
+    confirmData["success"] = allBoardsFound;
+    
+    if (!allBoardsFound) {
+        confirmData["missing_boards"] = missingBoards;
+        qDebug() << "Certains boards demandés n'ont pas été trouvés :" << missingBoards;
+    } else {
+        qDebug() << "Tous les boards demandés ont été correctement chargés";
+    }
+    
+    sendMessage(socket, "boards_loaded_confirm", confirmData);
 }
 
 void Room::notifySoundPadAdded(Board *board, SoundPad *pad)
@@ -1021,16 +864,21 @@ QString Room::getLocalIpAddress() const
 
 QStringList Room::connectedUsers() const
 {
-    QStringList usernames;
+    QStringList userList;
     
-    // Ajouter tous les noms d'utilisateurs connectés
-    for (const ConnectedUser &user : m_users.values()) {
-        if (!user.username.isEmpty()) {
-            usernames.append(user.username);
+    // Ajouter l'hôte s'il est défini
+    if (!m_hostUsername.isEmpty()) {
+        userList.append(m_hostUsername);
+    }
+    
+    // Ajouter les autres utilisateurs connectés
+    for (auto it = m_users.constBegin(); it != m_users.constEnd(); ++it) {
+        if (!it.value().username.isEmpty()) {
+            userList.append(it.value().username);
         }
     }
     
-    return usernames;
+    return userList;
 }
 
 void Room::installFileLocally(const QString &filePath) {
@@ -1089,4 +937,36 @@ void Room::saveMediaToPad(const QString &mediaPath) {
         qDebug() << "         Source :" << mediaPath;
         qDebug() << "         Vérifiez les permissions et l'espace disque";
     }
+}
+
+Board* Room::getBoard() const
+{
+    qDebug() << "Récupération du board principal";
+    return m_board;
+}
+
+void Room::setHostUsername(const QString &username)
+{
+    qDebug() << "Définition du nom d'utilisateur de l'hôte :" << username;
+    m_hostUsername = username;
+    
+    // Si nous sommes l'hôte, annoncer le changement de nom
+    if (m_isHost && m_server && m_server->isListening()) {
+        QJsonObject data;
+        data["username"] = username;
+        data["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate); // Ajout d'un timestamp
+        broadcastMessage("host_username_changed", data);
+    }
+}
+
+QString Room::invitationCode() const
+{
+    qDebug() << "Récupération du code d'invitation :" << m_invitationCode;
+    return m_invitationCode;
+}
+
+QString Room::hostUsername() const
+{
+    qDebug() << "Récupération du nom d'utilisateur de l'hôte :" << m_hostUsername;
+    return m_hostUsername;
 }

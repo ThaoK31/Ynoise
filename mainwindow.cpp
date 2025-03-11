@@ -1,6 +1,8 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "roomdialog.h"
+#include "board.h"
+#include "soundpad.h"
 
 #include <QInputDialog>
 #include <QMessageBox>
