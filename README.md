@@ -94,24 +94,6 @@ Client                         Serveur (Hôte)                     Autres Client
             +---------------------------+
 ```
 
-## Captures d'Écran
-
-### Interface Principale
-
-*Insérer une capture d'écran de l'interface principale montrant les onglets des tableaux, la liste des utilisateurs et les SoundPads.*
-
-### Processus de Création d'une Room
-
-*Insérer une série de captures d'écran montrant les étapes de création d'une Room, y compris le dialogue de création et la génération du code d'invitation.*
-
-### Utilisation des SoundPads
-
-*Insérer des captures d'écran montrant les SoundPads en action, en particulier lors de la lecture, de l'importation de sons et de l'édition des métadonnées.*
-
-### Vue Côté Client vs Côté Serveur
-
-*Insérer des captures d'écran comparatives entre l'interface d'un client et celle de l'hôte, en mettant en évidence les différences d'options disponibles.*
-
 ## Détails Techniques
 
 ### Format des Messages JSON Échangés
@@ -373,4 +355,11 @@ cmake --build .
 2. **Organisation en tableaux** : Gestion de collections de SoundPads
 3. **Collaboration en temps réel** : Partage et synchronisation des SoundPads entre utilisateurs
 4. **Système d'invitation simplifié** : Code d'invitation pour rejoindre facilement une Room
-5. **Interface utilisateur intuitive** : Organisation claire des pads et des fonctionnalités 
+5. **Interface utilisateur intuitive** : Organisation claire des pads et des fonctionnalités
+
+## Fonctinalité avenir
+
+### Gestion de fichier (8-16 heure de dev)
+
+Cela inclut la mise en place d'un nouveau type de message (par exemple "file_transfer") dans le protocole JSON, la lecture du fichier, son envoi (éventuellement découpé en tranches pour les gros fichiers) ainsi que la réception et le réassemblage des tranches pour sauvegarder le fichier localement.
+
