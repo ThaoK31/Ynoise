@@ -427,7 +427,15 @@ envoyer les fichiers entre les clients et serveur
 croix de supression de soundpad persistante dans l'UI 
 les membres ne s'affichent pas chez le client 
 
+## Évolutions prévues
+### Superposition de sons (4 à 8 heures de développement)
+Permettre la lecture simultanée de plusieurs sons, en optimisant le mixage pour éviter les saturations.
 
+### Arrêt automatique (2 à 4 heures de développement)
+Arrêter automatiquement un son en cours dès qu'il est relancé, afin d'éviter les chevauchements indésirables.
+
+### Transfert de fichiers (8 à 16 heures de développement)
+Intégrer un nouveau type de message (par exemple, « file_transfer ») dans le protocole JSON, permettant la lecture, l'envoi (éventuellement découpé en segments pour les fichiers volumineux), ainsi que la réception et le réassemblage des segments pour sauvegarder le fichier localement.
 
 ## Licence
 
